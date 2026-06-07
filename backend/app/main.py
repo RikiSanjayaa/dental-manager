@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db
-from app.routers import auth, dashboard, dev, doctor_fee, imports, master, payroll, reports
+from app.routers import auth, dashboard, dev, doctor_fee, master, payroll, reports
 
 
 @asynccontextmanager
@@ -27,7 +27,6 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(dev.router)
-app.include_router(imports.router)
 app.include_router(master.router)
 app.include_router(doctor_fee.router)
 app.include_router(payroll.router)

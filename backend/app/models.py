@@ -19,8 +19,6 @@ class PeriodStatus(str, Enum):
 
 
 class ImportKind(str, Enum):
-    DOCTOR_FEE = "doctor_fee"
-    PAYROLL = "payroll"
     MASTER_TREATMENTS = "master_treatments"
     MASTER_DOCTORS = "master_doctors"
     MASTER_EMPLOYEES = "master_employees"

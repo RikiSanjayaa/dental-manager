@@ -12,7 +12,6 @@ from app.models import (
     DoctorFeeRule,
     DoctorTransaction,
     Employee,
-    ImportKind,
     Treatment,
 )
 from app.utils import money_to_float, normalize_text, parse_date, parse_period, parse_time
@@ -108,10 +107,6 @@ def money_by_header(
 def preview_treatments(path: str | Path) -> dict[str, Any]:
     formula_wb = load_workbook(path, data_only=False)
     values_wb = load_workbook(path, data_only=True)
-    if "MASTER TREATMENT" in formula_wb.sheetnames:
-        source = preview_doctor_fee(path)
-        return {"kind": "treatments", "valid_rows": len(source["data"]["treatments"]), "invalid_rows": source["invalid_rows"], "warnings": source["warnings"], "errors": source["errors"], "summary": {"treatments": len(source["data"]["treatments"])}, "data": {"treatments": source["data"]["treatments"]}}
-
     ws = get_sheet(formula_wb, "Treatments")
     values_ws = values_wb[ws.title]
     headers = header_map(values_ws)
@@ -147,12 +142,6 @@ def preview_treatments(path: str | Path) -> dict[str, Any]:
 def preview_doctors(path: str | Path) -> dict[str, Any]:
     formula_wb = load_workbook(path, data_only=False)
     values_wb = load_workbook(path, data_only=True)
-    if "Rekapan FEE DOKTER" in formula_wb.sheetnames:
-        doctors = list(extract_doctor_metadata(values_wb).values())
-        unique = {normalize_text(item["name"]): item for item in doctors}
-        doctors = list(unique.values())
-        return {"kind": "doctors", "valid_rows": len(doctors), "invalid_rows": 0, "warnings": [], "errors": [], "summary": {"doctors": len(doctors)}, "data": {"doctors": doctors}}
-
     ws = get_sheet(formula_wb, "Doctors")
     values_ws = values_wb[ws.title]
     headers = header_map(values_ws)
@@ -167,7 +156,6 @@ def preview_doctors(path: str | Path) -> dict[str, Any]:
             {
                 "row": row,
                 "name": str(name).strip(),
-                "sheet_name": str(get_by_header(ws, values_ws, headers, row, "sheet_name", errors) or name).strip(),
                 "bank_name": str(get_by_header(ws, values_ws, headers, row, "bank_name", errors) or "").strip() or None,
                 "account_name": str(get_by_header(ws, values_ws, headers, row, "account_name", errors) or name).strip(),
                 "account_number": str(get_by_header(ws, values_ws, headers, row, "account_number", errors) or "").strip() or None,
@@ -185,10 +173,6 @@ def preview_doctors(path: str | Path) -> dict[str, Any]:
 def preview_employees(path: str | Path) -> dict[str, Any]:
     formula_wb = load_workbook(path, data_only=False)
     values_wb = load_workbook(path, data_only=True)
-    if "Form Gaji Karyawan" in formula_wb.sheetnames:
-        source = preview_payroll(path)
-        return {"kind": "employees", "valid_rows": len(source["data"]["employees"]), "invalid_rows": source["invalid_rows"], "warnings": source["warnings"], "errors": source["errors"], "summary": {"employees": len(source["data"]["employees"])}, "data": {"employees": source["data"]["employees"]}}
-
     ws = get_sheet(formula_wb, "Employees")
     values_ws = values_wb[ws.title]
     headers = header_map(values_ws)
@@ -220,10 +204,6 @@ def preview_employees(path: str | Path) -> dict[str, Any]:
 
 def preview_attendance(path: str | Path) -> dict[str, Any]:
     formula_wb = load_workbook(path, data_only=False)
-    if "FINGER PIN" in formula_wb.sheetnames:
-        source = preview_payroll(path)
-        return {"kind": "attendance", "valid_rows": len(source["data"]["attendance"]), "invalid_rows": source["invalid_rows"], "warnings": source["warnings"], "errors": source["errors"], "summary": {"attendance": len(source["data"]["attendance"])}, "data": {"attendance": source["data"]["attendance"]}}
-
     values_wb = load_workbook(path, data_only=True)
     ws = get_sheet(formula_wb, "Attendance")
     values_ws = values_wb[ws.title]
@@ -260,10 +240,6 @@ def preview_attendance(path: str | Path) -> dict[str, Any]:
 
 def preview_doctor_transactions(path: str | Path) -> dict[str, Any]:
     formula_wb = load_workbook(path, data_only=False)
-    if any(name.lower().startswith("ts. drg.") for name in formula_wb.sheetnames):
-        source = preview_doctor_fee(path)
-        return {"kind": "doctor_transactions", "valid_rows": len(source["data"]["transactions"]), "invalid_rows": source["invalid_rows"], "warnings": source["warnings"], "errors": source["errors"], "summary": {"transactions": len(source["data"]["transactions"])}, "data": {"transactions": source["data"]["transactions"], "doctors": source["data"]["doctors"]}}
-
     values_wb = load_workbook(path, data_only=True)
     ws = get_sheet(formula_wb, "DoctorTransactions")
     values_ws = values_wb[ws.title]
@@ -299,232 +275,10 @@ def preview_doctor_transactions(path: str | Path) -> dict[str, Any]:
     return {"kind": "doctor_transactions", "valid_rows": len(valid), "invalid_rows": len(rows) - len(valid) + len(errors), "warnings": [], "errors": errors, "summary": {"transactions": len(valid)}, "data": {"transactions": valid, "doctors": []}}
 
 
-def detect_import_kind(path: str | Path) -> ImportKind:
-    wb = load_workbook(path, read_only=True, data_only=False)
-    names = set(wb.sheetnames)
-    if {"MASTER TREATMENT", "Rekapan FEE DOKTER"}.issubset(names):
-        return ImportKind.DOCTOR_FEE
-    if {"Form Gaji Karyawan", "FINGER PIN"}.issubset(names):
-        return ImportKind.PAYROLL
-    return ImportKind.UNKNOWN
 
 
-def build_preview(path: str | Path, kind: ImportKind | None = None) -> dict[str, Any]:
-    kind = kind or detect_import_kind(path)
-    if kind == ImportKind.DOCTOR_FEE:
-        return preview_doctor_fee(path)
-    if kind == ImportKind.PAYROLL:
-        return preview_payroll(path)
-    return {"kind": ImportKind.UNKNOWN, "valid_rows": 0, "invalid_rows": 0, "warnings": ["Workbook tidak dikenali."]}
 
 
-def preview_doctor_fee(path: str | Path) -> dict[str, Any]:
-    wb = load_workbook(path, data_only=False)
-    values_wb = load_workbook(path, data_only=True)
-    master = wb["MASTER TREATMENT"]
-    master_values = values_wb["MASTER TREATMENT"]
-    treatments: list[dict[str, Any]] = []
-    treatment_names: set[str] = set()
-    errors: list[dict[str, Any]] = []
-    warnings: list[str] = []
-
-    current_category: str | None = None
-    for row in range(3, master.max_row + 1):
-        row_errors_before = len(errors)
-        name = safe_cell_value(master, master_values, row, 2, errors, "name")
-        category_value = safe_cell_value(master, master_values, row, 1, errors, "category/code")
-        if not name and category_value:
-            current_category = str(category_value).strip()
-            continue
-        if not name:
-            continue
-        code = safe_cell_value(master, master_values, row, 1, errors, "code")
-        bhp_cost = safe_money(master, master_values, row, 7, errors, "bhp_cost", default=0) or 0
-        treatment_price = safe_money(master, master_values, row, 9, errors, "treatment_price", default=0) or 0
-        service_fee = safe_money(master, master_values, row, 8, errors, "service_fee", default=None)
-        if service_fee is None and treatment_price:
-            service_fee = treatment_price - bhp_cost
-        if len(errors) > row_errors_before and not code:
-            continue
-        normalized = normalize_text(name)
-        duplicate = normalized in treatment_names
-        treatment_names.add(normalized)
-        treatments.append(
-            {
-                "row": row,
-                "code": str(code or "").strip(),
-                "name": str(name).strip(),
-                "category": current_category,
-                "doctor_cost": safe_money(master, master_values, row, 5, errors, "doctor_cost", default=0) or 0,
-                "specialist_cost": safe_money(master, master_values, row, 6, errors, "specialist_cost", default=0) or 0,
-                "bhp_cost": bhp_cost,
-                "service_fee": service_fee or 0,
-                "treatment_price": treatment_price,
-                "notes": str(safe_cell_value(master, master_values, row, 10, errors, "notes") or "").strip() or None,
-                "duplicate": duplicate,
-            }
-        )
-        if duplicate:
-            warnings.append(f"Treatment duplikat: {name}")
-
-    doctors = extract_doctor_metadata(values_wb)
-    transactions: list[dict[str, Any]] = []
-    for ws in wb.worksheets:
-        if not ws.title.lower().startswith("ts. drg."):
-            continue
-        values_ws = values_wb[ws.title]
-        sheet_doctor_name = ws.title.replace("TS. DRG.", "").strip().title()
-        doctor_name = doctors.get(normalize_text(sheet_doctor_name), {}).get("name", sheet_doctor_name)
-        header_row = 4 if ws.cell(4, 1).value == "Tanggal" else 5
-        current_date: date | None = None
-        for row in range(header_row + 1, ws.max_row + 1):
-            row_errors_before = len(errors)
-            raw_date = safe_cell_value(ws, values_ws, row, 1, errors, "transaction_date")
-            if raw_date:
-                current_date = parse_date(raw_date)
-            treatment_name = safe_cell_value(ws, values_ws, row, 3, errors, "treatment_name")
-            patient_name = safe_cell_value(ws, values_ws, row, 2, errors, "patient_name")
-            if not treatment_name and not patient_name:
-                continue
-            if isinstance(treatment_name, str) and "TOTAL FEE" in treatment_name.upper():
-                break
-            if not treatment_name:
-                continue
-            if current_date is None:
-                errors.append({"sheet": ws.title, "row": row, "message": "Tanggal kosong/tidak valid."})
-            normalized = normalize_text(treatment_name)
-            matched = normalized in treatment_names
-            transactions.append(
-                {
-                    "sheet": ws.title,
-                    "row": row,
-                    "doctor_name": doctor_name,
-                    "transaction_date": current_date.isoformat() if current_date else None,
-                    "period": parse_period(current_date),
-                    "patient_name": str(patient_name or "Nama Pasien").strip(),
-                    "treatment_name": str(treatment_name).strip(),
-                    "qty": safe_money(ws, values_ws, row, 6, errors, "qty", default=1) or 1,
-                    "discount_amount": safe_money(ws, values_ws, row, 7, errors, "discount_amount", default=0) or 0,
-                    "bhp_override": None if ws.cell(row, 4).data_type == "f" else safe_money(ws, values_ws, row, 4, errors, "bhp_override", default=None),
-                    "price_override": None if ws.cell(row, 5).data_type == "f" else safe_money(ws, values_ws, row, 5, errors, "price_override", default=None),
-                    "special_fee_amount": safe_money(ws, values_ws, row, 10, errors, "special_fee_amount", default=0) or 0,
-                    "treatment_found": matched,
-                    "valid": len(errors) == row_errors_before,
-                }
-            )
-            if not matched:
-                warnings.append(f"Treatment belum match: {treatment_name}")
-
-    return {
-        "kind": ImportKind.DOCTOR_FEE,
-        "valid_rows": len(treatments) + len(transactions) - len(errors),
-        "invalid_rows": len(errors),
-        "warnings": warnings[:200],
-        "errors": errors,
-        "summary": {
-            "treatments": len(treatments),
-            "transactions": len(transactions),
-            "doctor_sheets": sorted({row["doctor_name"] for row in transactions}),
-            "doctors": len(doctors),
-        },
-        "data": {"treatments": treatments, "transactions": transactions, "doctors": list(doctors.values())},
-    }
-
-
-def preview_payroll(path: str | Path) -> dict[str, Any]:
-    formula_wb = load_workbook(path, data_only=False)
-    wb = load_workbook(path, data_only=True)
-    payroll_formula = formula_wb["Form Gaji Karyawan"]
-    payroll = wb["Form Gaji Karyawan"]
-    attendance_formula = formula_wb["FINGER PIN"]
-    attendance = wb["FINGER PIN"]
-    employees: list[dict[str, Any]] = []
-    errors: list[dict[str, Any]] = []
-    warnings: list[str] = []
-
-    for row in range(5, payroll.max_row + 1):
-        row_errors_before = len(errors)
-        no = safe_cell_value(payroll_formula, payroll, row, 1, errors, "no")
-        name = safe_cell_value(payroll_formula, payroll, row, 2, errors, "name")
-        if not name:
-            continue
-        if str(name).strip().upper() == "TOTAL" or str(no).strip().upper() == "TOTAL":
-            break
-        base_salary = safe_money(payroll_formula, payroll, row, 6, errors, "base_salary", required=True, default=None)
-        if base_salary is None:
-            continue
-        employees.append(
-            {
-                "row": row,
-                "name": str(name).strip(),
-                "position": str(safe_cell_value(payroll_formula, payroll, row, 3, errors, "position") or "").strip() or None,
-                "join_date": str(safe_cell_value(payroll_formula, payroll, row, 4, errors, "join_date") or "").strip() or None,
-                "base_salary": base_salary,
-                "working_days": int(safe_money(payroll_formula, payroll, row, 7, errors, "working_days", default=25) or 25),
-                "double_shift_count": safe_money(payroll_formula, payroll, row, 8, errors, "double_shift_count", default=0) or 0,
-                "sunday_fee": safe_money(payroll_formula, payroll, row, 14, errors, "sunday_fee", default=0) or 0,
-                "overtime_minutes": int(safe_money(payroll_formula, payroll, row, 15, errors, "overtime_minutes", default=0) or 0),
-                "overtime_total": safe_money(payroll_formula, payroll, row, 17, errors, "overtime_total", default=0) or 0,
-                "bonus": safe_money(payroll_formula, payroll, row, 18, errors, "bonus", default=0) or 0,
-                "position_allowance": safe_money(payroll_formula, payroll, row, 19, errors, "position_allowance", default=0) or 0,
-                "bpjs_deduction": safe_money(payroll_formula, payroll, row, 20, errors, "bpjs_deduction", default=0) or 0,
-                "other_deduction": safe_money(payroll_formula, payroll, row, 21, errors, "other_deduction", default=0) or 0,
-                "pph21": safe_money(payroll_formula, payroll, row, 22, errors, "pph21", default=0) or 0,
-                "net_salary": safe_money(payroll_formula, payroll, row, 23, errors, "net_salary", default=0) or 0,
-                "payment_method": str(safe_cell_value(payroll_formula, payroll, row, 24, errors, "payment_method") or "Transfer").strip(),
-                "bank_name": str(safe_cell_value(payroll_formula, payroll, row, 25, errors, "bank_name") or "").strip() or None,
-                "account_name": str(safe_cell_value(payroll_formula, payroll, row, 26, errors, "account_name") or name).strip(),
-                "account_number": str(safe_cell_value(payroll_formula, payroll, row, 27, errors, "account_number") or "").strip() or None,
-                "valid": len(errors) == row_errors_before,
-            }
-        )
-
-    attendance_rows: list[dict[str, Any]] = []
-    for row in range(5, attendance.max_row + 1):
-        row_errors_before = len(errors)
-        name = safe_cell_value(attendance_formula, attendance, row, 2, errors, "employee_name")
-        work_date = parse_date(safe_cell_value(attendance_formula, attendance, row, 4, errors, "work_date"))
-        if not name or not work_date:
-            continue
-        matched = any(normalize_text(name) == normalize_text(employee["name"]) for employee in employees)
-        attendance_rows.append(
-            {
-                "row": row,
-                "employee_name": str(name).strip(),
-                "period": parse_period(work_date),
-                "work_date": work_date.isoformat(),
-                "timezone1_in": str(safe_cell_value(attendance_formula, attendance, row, 5, errors, "timezone1_in") or "") or None,
-                "timezone1_out": str(safe_cell_value(attendance_formula, attendance, row, 6, errors, "timezone1_out") or "") or None,
-                "timezone2_in": str(safe_cell_value(attendance_formula, attendance, row, 7, errors, "timezone2_in") or "") or None,
-                "timezone2_out": str(safe_cell_value(attendance_formula, attendance, row, 8, errors, "timezone2_out") or "") or None,
-                "late_minutes": int(safe_money(attendance_formula, attendance, row, 9, errors, "late_minutes", default=0) or 0),
-                "early_leave_minutes": int(safe_money(attendance_formula, attendance, row, 10, errors, "early_leave_minutes", default=0) or 0),
-                "absent_minutes": int(safe_money(attendance_formula, attendance, row, 11, errors, "absent_minutes", default=0) or 0),
-                "status_note": str(safe_cell_value(attendance_formula, attendance, row, 13, errors, "status_note") or "").strip() or None,
-                "employee_found": matched,
-                "valid": len(errors) == row_errors_before,
-            }
-        )
-        if not matched:
-            warnings.append(f"Fingerprint belum match ke karyawan: {name}")
-
-    return {
-        "kind": ImportKind.PAYROLL,
-        "valid_rows": len(employees) + len(attendance_rows) - len(errors),
-        "invalid_rows": len(errors),
-        "warnings": warnings[:200],
-        "errors": errors,
-        "summary": {"employees": len(employees), "attendance_records": len(attendance_rows)},
-        "data": {"employees": employees, "attendance": attendance_rows},
-    }
-
-
-def commit_preview(session: Session, preview: dict[str, Any]) -> dict[str, int]:
-    if preview.get("kind") == ImportKind.DOCTOR_FEE:
-        return commit_doctor_fee(session, preview)
-    if preview.get("kind") == ImportKind.PAYROLL:
-        return commit_payroll(session, preview)
-    return {"created": 0, "updated": 0}
 
 
 def commit_treatments(session: Session, treatments: list[dict[str, Any]]) -> dict[str, int]:
@@ -620,8 +374,6 @@ def commit_doctor_transactions(session: Session, preview: dict[str, Any]) -> dic
     for item in preview["data"].get("doctors", []):
         doctor = upsert_doctor(session, item)
         doctor_map[normalize_text(doctor.name)] = doctor
-        if item.get("sheet_name"):
-            doctor_map[normalize_text(item["sheet_name"])] = doctor
 
     default_rule = session.exec(select(DoctorFeeRule).where(DoctorFeeRule.is_default == True)).first()  # noqa: E712
     default_rule = default_rule or DoctorFeeRule(name="Default", is_default=True)
@@ -656,96 +408,12 @@ def commit_doctor_transactions(session: Session, preview: dict[str, Any]) -> dic
     return {"created": created, "updated": updated}
 
 
-def commit_doctor_fee(session: Session, preview: dict[str, Any]) -> dict[str, int]:
-    created = 0
-    updated = 0
-    treatment_map: dict[str, Treatment] = {}
-    result = commit_treatments(session, preview["data"]["treatments"])
-    created += result["created"]
-    updated += result["updated"]
-    treatment_map = {normalize_text(treatment.name): treatment for treatment in session.exec(select(Treatment)).all()}
 
-    default_rule = session.exec(select(DoctorFeeRule).where(DoctorFeeRule.is_default == True)).first()  # noqa: E712
-    default_rule = default_rule or DoctorFeeRule(name="Default", is_default=True)
-    doctor_map: dict[str, Doctor] = {}
-    for item in preview["data"].get("doctors", []):
-        doctor = upsert_doctor(session, item)
-        doctor_map[normalize_text(doctor.name)] = doctor
-        if item.get("sheet_name"):
-            doctor_map[normalize_text(item["sheet_name"])] = doctor
-
-    for item in preview["data"]["transactions"]:
-        trx_date = parse_date(item["transaction_date"])
-        if not trx_date:
-            continue
-        doctor = doctor_map.get(normalize_text(item["doctor_name"]))
-        if not doctor:
-            doctor = upsert_doctor(session, {"name": item["doctor_name"], "sheet_name": item["doctor_name"]})
-            doctor_map[normalize_text(item["doctor_name"])] = doctor
-            created += 1
-        treatment = treatment_map.get(normalize_text(item["treatment_name"]))
-        trx = DoctorTransaction(
-            period=item["period"],
-            transaction_date=trx_date,
-            doctor_id=doctor.id,
-            patient_name=item["patient_name"],
-            treatment_id=treatment.id if treatment else None,
-            treatment_name_snapshot=item["treatment_name"],
-            qty=item["qty"],
-            discount_amount=item["discount_amount"],
-            bhp_override=item["bhp_override"],
-            price_override=item["price_override"],
-            special_fee_amount=item["special_fee_amount"],
-            needs_review=not bool(treatment),
-            review_note=None if treatment else "Treatment belum ditemukan di master.",
-        )
-        calculate_doctor_transaction(trx, treatment, doctor, default_rule)
-        session.add(trx)
-        created += 1
-
-    session.commit()
-    return {"created": created, "updated": updated}
-
-
-def extract_doctor_metadata(values_wb) -> dict[str, dict[str, Any]]:
-    if "Rekapan FEE DOKTER" not in values_wb.sheetnames:
-        return {}
-    sheet = values_wb["Rekapan FEE DOKTER"]
-    result: dict[str, dict[str, Any]] = {}
-    sheet_names = {
-        normalize_text(name.replace("TS. DRG.", "").strip()): name.replace("TS. DRG.", "").strip().title()
-        for name in values_wb.sheetnames
-        if name.lower().startswith("ts. drg.")
-    }
-    for row in range(2, sheet.max_row + 1):
-        raw_name = sheet.cell(row, 3).value
-        if not raw_name:
-            continue
-        name = str(raw_name).strip()
-        if name.upper() == "TOTAL":
-            continue
-        short_name = name.replace("drg.", "").replace("Drg.", "").strip()
-        matched_sheet_name = sheet_names.get(normalize_text(short_name), short_name.title())
-        metadata = {
-            "name": name,
-            "sheet_name": matched_sheet_name,
-            "bank_name": str(sheet.cell(row, 11).value or "").strip() or None,
-            "account_number": str(sheet.cell(row, 12).value or "").strip() or None,
-            "account_name": str(sheet.cell(row, 13).value or name).strip() or None,
-            "nik": str(sheet.cell(row, 14).value or "").strip() or None,
-        }
-        result[normalize_text(name)] = metadata
-        result[normalize_text(short_name)] = metadata
-        result[normalize_text(matched_sheet_name)] = metadata
-    return result
 
 
 def upsert_doctor(session: Session, item: dict[str, Any]) -> Doctor:
     name = str(item["name"]).strip()
     doctor = session.exec(select(Doctor).where(Doctor.name == name)).first()
-    if not doctor and item.get("sheet_name"):
-        sheet_name = str(item["sheet_name"]).strip()
-        doctor = session.exec(select(Doctor).where(Doctor.name == sheet_name)).first()
     if not doctor:
         doctor = Doctor(name=name)
     else:
@@ -759,7 +427,4 @@ def upsert_doctor(session: Session, item: dict[str, Any]) -> Doctor:
     return doctor
 
 
-def commit_payroll(session: Session, preview: dict[str, Any]) -> dict[str, int]:
-    employees = commit_employees(session, preview["data"]["employees"])
-    attendance = commit_attendance(session, preview["data"]["attendance"])
-    return {"created": employees["created"] + attendance["created"], "updated": employees["updated"] + attendance["updated"]}
+
