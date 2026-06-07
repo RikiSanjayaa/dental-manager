@@ -1,0 +1,74 @@
+:root {
+  color-scheme: light;
+  font-family: "Aptos", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  color: var(--text-color-kumo-default);
+  background: var(--color-kumo-canvas);
+}
+
+:root[data-mode="dark"] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--color-kumo-canvas);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+.app-sidebar-menu {
+  gap: 4px !important;
+}
+
+.app-sidebar-footer-menu {
+  margin-left: -2px !important;
+  width: calc(100% + 3px) !important;
+}
+
+.app-sidebar-footer-menu > li {
+  width: 100% !important;
+}
+
+.app-sidebar-logout {
+  justify-content: flex-start !important;
+  width: 100% !important;
+}
+
+.app-sidebar-logout:hover {
+  background: color-mix(in oklab, var(--color-kumo-danger-tint) 72%, transparent) !important;
+  color: var(--text-color-kumo-danger) !important;
+}
+
+.app-sidebar-logout:hover svg {
+  color: var(--text-color-kumo-danger) !important;
+  stroke: currentColor !important;
+}
+
+.master-editor-form input,
+.master-editor-form [role="combobox"] {
+  width: 100%;
+}
