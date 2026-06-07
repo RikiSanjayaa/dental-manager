@@ -398,6 +398,7 @@ def commit_doctor_transactions(session: Session, preview: dict[str, Any]) -> dic
             bhp_override=item["bhp_override"],
             price_override=item["price_override"],
             special_fee_amount=item["special_fee_amount"],
+            fee_rate=item.get("fee_rate"),
             needs_review=not bool(treatment),
             review_note=None if treatment else "Treatment belum ditemukan di master.",
         )
@@ -425,6 +426,5 @@ def upsert_doctor(session: Session, item: dict[str, Any]) -> Doctor:
     session.add(doctor)
     session.flush()
     return doctor
-
 
 

@@ -72,3 +72,12 @@ a {
 .master-editor-form [role="combobox"] {
   width: 100%;
 }
+
+.treatment-history-editor-form .max-w-xs {
+  max-width: 100% !important;
+}
+
+.treatment-history-editor-form input,
+.treatment-history-editor-form [role="combobox"] {
+  width: 100%;
+}

@@ -1,6 +1,7 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Button } from "@cloudflare/kumo/components/button";
-import { Pencil, PowerOff, RotateCcw, Trash2 } from "lucide-react";
+import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
+import { MoreHorizontal, Pencil, PowerOff, RotateCcw, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { DataTable } from "../DataTable";
@@ -33,35 +34,44 @@ export function DoctorTable({
   function actionButtons(row: Doctor): ReactNode {
     return (
       <div
-        className="flex justify-end gap-1"
+        className="flex justify-end"
         onClick={(event) => event.stopPropagation()}
       >
-        <Button
-          variant="secondary"
-          shape="square"
-          aria-label={`Edit ${MASTER_META.doctors.label}`}
-          title="Edit"
-          icon={<Pencil size={16} />}
-          onClick={() => onEdit(row.id, row)}
-        />
-        <Button
-          variant="secondary"
-          shape="square"
-          aria-label={`${row.is_active ? "Nonaktifkan" : "Aktifkan"} ${MASTER_META.doctors.label}`}
-          title={row.is_active ? "Nonaktifkan" : "Aktifkan kembali"}
-          icon={row.is_active ? <PowerOff size={16} /> : <RotateCcw size={16} />}
-          loading={isTogglePending}
-          onClick={() => onToggleActive(row.id, !row.is_active)}
-        />
-        <Button
-          variant="secondary-destructive"
-          shape="square"
-          aria-label={`Hapus permanen ${MASTER_META.doctors.label}`}
-          title="Hapus permanen"
-          icon={<Trash2 size={16} />}
-          loading={isDeletePending}
-          onClick={() => onDelete(row.id, row.name)}
-        />
+        <DropdownMenu>
+          <DropdownMenu.Trigger
+            render={
+              <Button
+                variant="ghost"
+                size="sm"
+                shape="square"
+                aria-label={`Aksi ${MASTER_META.doctors.label}`}
+              >
+                <MoreHorizontal size={16} />
+              </Button>
+            }
+          />
+          <DropdownMenu.Content>
+            <DropdownMenu.Item icon={<Pencil className="mr-2" size={16} />} onClick={() => onEdit(row.id, row)}>
+              Edit
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              icon={row.is_active ? <PowerOff className="mr-2" size={16} /> : <RotateCcw className="mr-2" size={16} />}
+              disabled={isTogglePending}
+              onClick={() => onToggleActive(row.id, !row.is_active)}
+            >
+              {row.is_active ? "Nonaktifkan" : "Aktifkan kembali"}
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator />
+            <DropdownMenu.Item
+              icon={<Trash2 className="mr-2" size={16} />}
+              variant="danger"
+              disabled={isDeletePending}
+              onClick={() => onDelete(row.id, row.name)}
+            >
+              Hapus permanen
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu>
       </div>
     );
   }
@@ -111,8 +121,9 @@ export function DoctorTable({
         },
         {
           key: "actions",
-          header: "Aksi",
+          header: "",
           align: "right",
+          sticky: "right",
           render: (row) => actionButtons(row),
         },
       ]}

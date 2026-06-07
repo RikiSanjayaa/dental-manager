@@ -12,6 +12,7 @@ import { MasterDataPage } from "./pages/MasterDataPage";
 import { PayrollPage } from "./pages/PayrollPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TreatmentHistoryPage } from "./pages/TreatmentHistoryPage";
 
 function Protected() {
   const token = getToken();
@@ -35,6 +36,7 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<Protected />}>
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/treatment-history" element={<TreatmentHistoryPage />} />
         <Route path="/doctor-fees" element={<DoctorFeesPage />} />
         <Route path="/payroll" element={<PayrollPage />} />
         <Route path="/attendance" element={<AttendancePage />} />

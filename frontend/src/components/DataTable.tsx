@@ -9,12 +9,14 @@ export type Column<T> = {
   header: string;
   render: (row: T) => ReactNode;
   align?: "left" | "right" | "center";
+  sticky?: "left" | "right";
 };
 
 type Props<T> = {
   rows: T[];
   columns: Column<T>[];
   empty?: string;
+  minTableWidth?: number;
   pagination?: boolean;
   pageSize?: number;
   rowKey?: (row: T, index: number) => string | number;
@@ -28,6 +30,7 @@ export function DataTable<T>({
   rows,
   columns,
   empty = "Belum ada data",
+  minTableWidth,
   pagination = false,
   pageSize = 10,
   rowKey,
@@ -57,15 +60,24 @@ export function DataTable<T>({
   const selectedVisibleCount = selectedKeys ? visibleKeys.filter((key) => selectedKeys.has(key)).length : 0;
   const allVisibleSelected = visibleKeys.length > 0 && selectedVisibleCount === visibleKeys.length;
   const someVisibleSelected = selectedVisibleCount > 0 && selectedVisibleCount < visibleKeys.length;
+  const stickyColumn = (column: Column<T>) => {
+    if (column.sticky) return column.sticky;
+    if (column.key === "actions") return "right";
+    return undefined;
+  };
+  const alignClass = (align?: Column<T>["align"]) =>
+    align === "right" ? "text-right" : align === "center" ? "text-center" : undefined;
+  const computedMinWidth =
+    minTableWidth ?? Math.max(920, columns.length * 150 + (selectable ? 52 : 0));
 
   return (
     <div className="space-y-3">
-      <div className="overflow-auto rounded-lg border border-kumo-hairline bg-kumo-base">
-        <Table className="w-full min-w-[760px]">
-          <Table.Header sticky>
+      <div className="w-full overflow-x-auto overflow-y-auto rounded-lg border border-kumo-hairline bg-kumo-base">
+        <Table className="w-full" style={{ minWidth: computedMinWidth }}>
+          <Table.Header sticky variant="compact">
             <Table.Row>
               {selectable ? (
-                <Table.Head className="w-10">
+                <Table.Head className="sticky left-0 z-[3] w-10 bg-kumo-base">
                   <Checkbox
                     aria-label="Pilih semua baris halaman ini"
                     checked={allVisibleSelected}
@@ -75,8 +87,12 @@ export function DataTable<T>({
                 </Table.Head>
               ) : null}
               {columns.map((column) => (
-                <Table.Head key={column.key} className={column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : undefined}>
-                  {column.header}
+                <Table.Head
+                  key={column.key}
+                  sticky={stickyColumn(column)}
+                  className={`${alignClass(column.align) ?? ""} whitespace-nowrap text-xs`}
+                >
+                  {column.header || (column.key === "actions" ? <span className="sr-only">Aksi</span> : null)}
                 </Table.Head>
               ))}
             </Table.Row>
@@ -100,7 +116,7 @@ export function DataTable<T>({
                     onClick={selectable ? () => onToggleRow?.(row, !selected, absoluteIndex) : undefined}
                   >
                     {selectable ? (
-                      <Table.Cell className="w-10" onClick={(event) => event.stopPropagation()}>
+                      <Table.Cell className="sticky left-0 z-[2] w-10 bg-kumo-base" onClick={(event) => event.stopPropagation()}>
                         <Checkbox
                           aria-label="Pilih baris"
                           checked={selected}
@@ -109,7 +125,11 @@ export function DataTable<T>({
                       </Table.Cell>
                     ) : null}
                     {columns.map((column) => (
-                      <Table.Cell key={column.key} className={column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : undefined}>
+                      <Table.Cell
+                        key={column.key}
+                        sticky={stickyColumn(column)}
+                        className={`${alignClass(column.align) ?? ""} whitespace-nowrap`}
+                      >
                         {column.render(row)}
                       </Table.Cell>
                     ))}

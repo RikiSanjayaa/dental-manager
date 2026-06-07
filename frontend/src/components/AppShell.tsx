@@ -6,6 +6,7 @@ import { Text } from "@cloudflare/kumo/components/text";
 import {
   type LucideIcon,
   ClipboardList,
+  ClipboardPlus,
   FileSpreadsheet,
   LayoutDashboard,
   LogOut,
@@ -29,6 +30,7 @@ type Props = {
 
 const nav: Array<{ to: string; label: string; icon: LucideIcon }> = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/treatment-history", label: "Riwayat Perawatan", icon: ClipboardPlus },
   { to: "/doctor-fees", label: "Fee Dokter", icon: Stethoscope },
   { to: "/payroll", label: "Payroll", icon: ReceiptText },
   { to: "/attendance", label: "Absensi", icon: ClipboardList },
