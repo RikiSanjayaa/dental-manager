@@ -24,3 +24,6 @@ backend/uploads/
 frontend/.chrome*/
 frontend/screenshots/
 frontend/tsconfig.tsbuildinfo
+
+# Test data files
+*- Copy.xlsx
