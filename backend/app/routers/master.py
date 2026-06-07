@@ -7,6 +7,7 @@ from uuid import uuid4
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from openpyxl import load_workbook
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, select
 
 from app.dependencies import AdminUser, CurrentUser, SessionDep
@@ -114,6 +115,16 @@ def _get_or_404(session: SessionDep, model: type[ModelT], item_id: int) -> Model
     if not item:
         raise HTTPException(status_code=404, detail="Data tidak ditemukan")
     return item
+
+
+def _master_model(target: str) -> type[Employee] | type[Doctor] | type[Treatment]:
+    if target == "employees":
+        return Employee
+    if target == "doctors":
+        return Doctor
+    if target == "treatments":
+        return Treatment
+    raise HTTPException(status_code=404, detail="Target master data tidak dikenal.")
 
 
 @router.get("/users", response_model=list[UserRead])
@@ -252,6 +263,41 @@ def delete_treatment(item_id: int, session: SessionDep, _: AdminUser) -> Treatme
     session.commit()
     session.refresh(item)
     return item
+
+
+@router.post("/{target}/{item_id}/activate")
+def activate_master_item(target: str, item_id: int, session: SessionDep, _: AdminUser) -> dict:
+    model = _master_model(target)
+    item = _get_or_404(session, model, item_id)
+    item.is_active = True
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return {"target": target, "id": item.id, "is_active": item.is_active}
+
+
+@router.post("/{target}/{item_id}/deactivate")
+def deactivate_master_item(target: str, item_id: int, session: SessionDep, _: AdminUser) -> dict:
+    model = _master_model(target)
+    item = _get_or_404(session, model, item_id)
+    item.is_active = False
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return {"target": target, "id": item.id, "is_active": item.is_active}
+
+
+@router.delete("/{target}/{item_id}/permanent")
+def permanently_delete_master_item(target: str, item_id: int, session: SessionDep, _: AdminUser) -> dict:
+    model = _master_model(target)
+    item = _get_or_404(session, model, item_id)
+    try:
+        session.delete(item)
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Data masih dipakai oleh transaksi/perhitungan lain, jadi tidak bisa dihapus permanen.") from exc
+    return {"target": target, "id": item_id, "deleted": True}
 
 
 def _save_upload(file: UploadFile) -> Path:
