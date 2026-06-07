@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { Checkbox } from "@cloudflare/kumo/components/checkbox";
 import { Pagination } from "@cloudflare/kumo/components/pagination";
 import { Table } from "@cloudflare/kumo/components/table";
 
@@ -17,9 +18,24 @@ type Props<T> = {
   pagination?: boolean;
   pageSize?: number;
   rowKey?: (row: T, index: number) => string | number;
+  selectable?: boolean;
+  selectedKeys?: Set<string | number>;
+  onToggleRow?: (row: T, selected: boolean, index: number) => void;
+  onTogglePage?: (rows: T[], selected: boolean) => void;
 };
 
-export function DataTable<T>({ rows, columns, empty = "Belum ada data", pagination = false, pageSize = 10, rowKey }: Props<T>) {
+export function DataTable<T>({
+  rows,
+  columns,
+  empty = "Belum ada data",
+  pagination = false,
+  pageSize = 10,
+  rowKey,
+  selectable = false,
+  selectedKeys,
+  onToggleRow,
+  onTogglePage,
+}: Props<T>) {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(pageSize);
   const totalPages = Math.max(1, Math.ceil(rows.length / perPage));
@@ -37,12 +53,27 @@ export function DataTable<T>({ rows, columns, empty = "Belum ada data", paginati
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
+  const visibleKeys = pagedRows.map((row, index) => rowKey?.(row, pagination ? (page - 1) * perPage + index : index) ?? index);
+  const selectedVisibleCount = selectedKeys ? visibleKeys.filter((key) => selectedKeys.has(key)).length : 0;
+  const allVisibleSelected = visibleKeys.length > 0 && selectedVisibleCount === visibleKeys.length;
+  const someVisibleSelected = selectedVisibleCount > 0 && selectedVisibleCount < visibleKeys.length;
+
   return (
     <div className="space-y-3">
       <div className="overflow-auto rounded-lg border border-kumo-hairline bg-kumo-base">
         <Table className="w-full min-w-[760px]">
           <Table.Header sticky>
             <Table.Row>
+              {selectable ? (
+                <Table.Head className="w-10">
+                  <Checkbox
+                    aria-label="Pilih semua baris halaman ini"
+                    checked={allVisibleSelected}
+                    indeterminate={someVisibleSelected}
+                    onCheckedChange={(checked) => onTogglePage?.(pagedRows, Boolean(checked))}
+                  />
+                </Table.Head>
+              ) : null}
               {columns.map((column) => (
                 <Table.Head key={column.key} className={column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : undefined}>
                   {column.header}
@@ -53,15 +84,30 @@ export function DataTable<T>({ rows, columns, empty = "Belum ada data", paginati
           <Table.Body>
             {rows.length === 0 ? (
               <Table.Row>
-                <Table.Cell colSpan={columns.length} className="py-8 text-center text-kumo-subtle">
+                <Table.Cell colSpan={columns.length + (selectable ? 1 : 0)} className="py-8 text-center text-kumo-subtle">
                   {empty}
                 </Table.Cell>
               </Table.Row>
             ) : (
               pagedRows.map((row, index) => {
                 const absoluteIndex = pagination ? (page - 1) * perPage + index : index;
+                const key = rowKey ? rowKey(row, absoluteIndex) : absoluteIndex;
+                const selected = Boolean(selectedKeys?.has(key));
                 return (
-                  <Table.Row key={rowKey ? rowKey(row, absoluteIndex) : absoluteIndex}>
+                  <Table.Row
+                    key={key}
+                    className={selectable ? `cursor-pointer ${selected ? "bg-kumo-brand/5" : ""}` : undefined}
+                    onClick={selectable ? () => onToggleRow?.(row, !selected, absoluteIndex) : undefined}
+                  >
+                    {selectable ? (
+                      <Table.Cell className="w-10" onClick={(event) => event.stopPropagation()}>
+                        <Checkbox
+                          aria-label="Pilih baris"
+                          checked={selected}
+                          onCheckedChange={(checked) => onToggleRow?.(row, Boolean(checked), absoluteIndex)}
+                        />
+                      </Table.Cell>
+                    ) : null}
                     {columns.map((column) => (
                       <Table.Cell key={column.key} className={column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : undefined}>
                         {column.render(row)}
@@ -74,7 +120,7 @@ export function DataTable<T>({ rows, columns, empty = "Belum ada data", paginati
           </Table.Body>
         </Table>
       </div>
-      {pagination && rows.length > pageSize ? (
+      {pagination && rows.length > 0 ? (
         <Pagination page={page} setPage={setPage} perPage={perPage} totalCount={rows.length} className="flex flex-wrap items-center justify-between gap-3">
           <Pagination.Info>{({ pageShowingRange, totalCount }) => <span className="text-sm text-kumo-subtle">{pageShowingRange} dari {totalCount}</span>}</Pagination.Info>
           <Pagination.PageSize value={perPage} onChange={setPerPage} options={[10, 25, 50]} label="Per halaman:" />
