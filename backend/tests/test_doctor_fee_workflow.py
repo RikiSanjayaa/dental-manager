@@ -1,5 +1,6 @@
 from datetime import date
 from io import BytesIO
+from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
@@ -121,3 +122,12 @@ def test_doctor_fee_lock_rejects_review_rows_and_export_has_detail_sheet():
     assert pdf_response.status_code == 200
     assert pdf_response.headers["content-type"] == "application/pdf"
     assert pdf_response.content.startswith(b"%PDF")
+
+    zip_response = client.get("/reports/doctor-fees?period=2026-05&format=zip", headers=headers)
+    assert zip_response.status_code == 200
+    assert zip_response.headers["content-type"] == "application/zip"
+    archive = ZipFile(BytesIO(zip_response.content))
+    names = archive.namelist()
+    assert len(names) == 1
+    assert names[0].endswith(".pdf")
+    assert archive.read(names[0]).startswith(b"%PDF")

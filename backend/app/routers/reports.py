@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.dependencies import CurrentUser, SessionDep
-from app.reports import doctor_fee_pdf, doctor_fee_xlsx, payroll_slip_pdf, payroll_xlsx, template_xlsx
+from app.reports import doctor_fee_pdf, doctor_fee_pdf_zip, doctor_fee_xlsx, payroll_slip_pdf, payroll_xlsx, template_xlsx
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -23,7 +23,14 @@ def export_doctor_fees(period: str, format: str, session: SessionDep, _: Current
             media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="doctor-fees-{period}.pdf"'},
         )
-    raise HTTPException(status_code=400, detail="Format fee dokter mendukung xlsx atau pdf.")
+    if format in {"zip", "pdf-zip"}:
+        stream = doctor_fee_pdf_zip(session, period)
+        return StreamingResponse(
+            stream,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="doctor-fees-{period}-per-dokter.zip"'},
+        )
+    raise HTTPException(status_code=400, detail="Format fee dokter mendukung xlsx, pdf, atau zip.")
 
 
 @router.get("/payroll")

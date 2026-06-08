@@ -1,7 +1,7 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Banner } from "@cloudflare/kumo/components/banner";
 import { Breadcrumbs } from "@cloudflare/kumo/components/breadcrumbs";
-import { Button, LinkButton } from "@cloudflare/kumo/components/button";
+import { Button } from "@cloudflare/kumo/components/button";
 import { Chart, ChartPalette, type KumoChartOption } from "@cloudflare/kumo/components/chart";
 import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
 import { Input } from "@cloudflare/kumo/components/input";
@@ -32,6 +32,7 @@ import { useNavigate } from "react-router-dom";
 import { DataTable } from "../components/DataTable";
 import { api, downloadFile, rupiah } from "../lib/api";
 import { brandName } from "../lib/brand";
+import { isDevelopmentEnvironment } from "../lib/environment";
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
@@ -342,6 +343,18 @@ export function DoctorFeesPage() {
     }
   }
 
+  async function exportPdfZip() {
+    try {
+      await downloadFile(`/reports/doctor-fees?period=${period}&format=zip`, `doctor-fees-${period}-per-dokter.zip`);
+    } catch (error) {
+      toasts.add({
+        title: "Export ZIP fee dokter gagal",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      });
+    }
+  }
+
   function openTreatmentHistory(doctorId?: number) {
     const params = new URLSearchParams({ period });
     if (doctorId) params.set("doctor_id", String(doctorId));
@@ -391,24 +404,46 @@ export function DoctorFeesPage() {
           >
             Lock Periode
           </Button>
-          <Button variant="secondary" icon={<FileSpreadsheet size={18} />} onClick={exportWorkbook}>
+          <Button
+            variant="primary"
+            icon={<FileSpreadsheet size={18} />}
+            style={{ background: "#059669", color: "#ffffff", borderColor: "#047857" }}
+            onClick={exportWorkbook}
+          >
             Export XLSX
           </Button>
-          <Button variant="secondary" icon={<FileText size={18} />} onClick={exportPdf}>
-            Export PDF
-          </Button>
-          <Button
-            variant="secondary"
-            icon={<Database size={18} />}
-            loading={generateRandom.isPending}
-            disabled={overview?.status === "locked"}
-            onClick={() => generateRandom.mutate()}
-          >
-            Generate Data Tes
-          </Button>
-          <LinkButton variant="secondary" href={`/treatment-history?period=${period}`} icon={<ExternalLink size={18} />}>
-            Riwayat Perawatan
-          </LinkButton>
+          <DropdownMenu>
+            <DropdownMenu.Trigger
+              render={
+                <Button
+                  variant="destructive"
+                  icon={<FileText size={18} />}
+                  style={{ background: "#dc2626", color: "#ffffff", borderColor: "#b91c1c" }}
+                >
+                  Export PDF
+                </Button>
+              }
+            />
+            <DropdownMenu.Content>
+              <DropdownMenu.Item icon={<FileText className="mr-2" size={16} />} onClick={exportPdf}>
+                PDF gabungan
+              </DropdownMenu.Item>
+              <DropdownMenu.Item icon={<FileText className="mr-2" size={16} />} onClick={exportPdfZip}>
+                ZIP PDF per dokter
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu>
+          {isDevelopmentEnvironment ? (
+            <Button
+              variant="secondary"
+              icon={<Database size={18} />}
+              loading={generateRandom.isPending}
+              disabled={overview?.status === "locked"}
+              onClick={() => generateRandom.mutate()}
+            >
+              Generate Data Tes
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -546,7 +581,7 @@ export function DoctorFeesPage() {
         />
       </LayerCard>
 
-      <LayerCard className="flex flex-col gap-4 p-4">
+      <LayerCard className="mb-6 flex flex-col gap-4 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <Text as="h2" variant="heading3">Detail Transaksi Dokter</Text>

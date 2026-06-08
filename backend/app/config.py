@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/dental_manager.db"
     upload_dir: Path = Path("./uploads")
     secret_key: str = "change-me-in-production"
+    app_env: str = "development"
     access_token_expire_minutes: int = 720
     admin_username: str = "admin"
     admin_password: str = "admin12345"
@@ -20,6 +21,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def is_development(self) -> bool:
+        return self.app_env.strip().lower() in {"dev", "development", "local", "test"}
 
 
 @lru_cache

@@ -9,6 +9,7 @@ import { useState } from "react";
 import { DataTable } from "../components/DataTable";
 import { PageHeader } from "../components/PageHeader";
 import { api } from "../lib/api";
+import { isDevelopmentEnvironment } from "../lib/environment";
 
 type PayrollRule = { id: number; name: string; is_default: boolean; bpjs_jht_rate: number; overtime_rate_per_minute: number; pph21_threshold: number; pph21_rate: number };
 type DoctorFeeRule = { id: number; name: string; is_default: boolean; normal_fee_rate: number; ortho_fee_rate: number; tax_rate: number; default_deduction: number };
@@ -37,21 +38,23 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" eyebrow="Configurable calculation rules" />
-      <LayerCard className="flex items-center justify-between gap-4 border-kumo-danger p-4">
-        <div>
-          <Text as="h2" variant="heading3">Testing Tools</Text>
-          <Text variant="secondary" size="sm">Refresh database menghapus semua data app, lalu membuat ulang admin dan default rules.</Text>
-          {refreshMessage ? <Text variant="error" size="sm">{refreshMessage}</Text> : null}
-        </div>
-        <Button
-          variant="secondary-destructive"
-          icon={<RefreshCcw size={18} />}
-          loading={refreshDatabase.isPending}
-          onClick={confirmRefresh}
-        >
-          Refresh Database
-        </Button>
-      </LayerCard>
+      {isDevelopmentEnvironment ? (
+        <LayerCard className="flex items-center justify-between gap-4 border-kumo-danger p-4">
+          <div>
+            <Text as="h2" variant="heading3">Testing Tools</Text>
+            <Text variant="secondary" size="sm">Refresh database menghapus semua data app, lalu membuat ulang admin dan default rules.</Text>
+            {refreshMessage ? <Text variant="error" size="sm">{refreshMessage}</Text> : null}
+          </div>
+          <Button
+            variant="secondary-destructive"
+            icon={<RefreshCcw size={18} />}
+            loading={refreshDatabase.isPending}
+            onClick={confirmRefresh}
+          >
+            Refresh Database
+          </Button>
+        </LayerCard>
+      ) : null}
       <LayerCard className="p-4">
         <Text as="h2" variant="heading3" DANGEROUS_className="mb-4">Payroll Rules</Text>
         <DataTable

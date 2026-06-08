@@ -1,5 +1,6 @@
 from io import BytesIO
 import re
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -65,6 +66,10 @@ def _safe_sheet_title(title: str, used: set[str]) -> str:
         index += 1
     used.add(candidate)
     return candidate
+
+
+def _safe_filename(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._ -]+", " ", value).strip().replace("  ", " ") or "file"
 
 
 thin_black = Side(style="thin", color="000000")
@@ -338,65 +343,68 @@ def _short_text(value: str, limit: int) -> str:
     return value if len(value) <= limit else f"{value[: max(0, limit - 1)]}..."
 
 
-def doctor_fee_pdf(session: Session, period: str) -> BytesIO:
-    summaries, export_status = _doctor_fee_summaries(session, period)
+def doctor_fee_pdf(session: Session, period: str, doctor_id: int | None = None, include_summary: bool = True) -> BytesIO:
+    all_summaries, export_status = _doctor_fee_summaries(session, period)
+    summaries = [summary for summary in all_summaries if doctor_id is None or summary.doctor_id == doctor_id]
     stream = BytesIO()
     pdf = canvas.Canvas(stream, pagesize=landscape(A4))
     width, height = landscape(A4)
     left = 10 * mm
     right = width - 10 * mm
 
-    y = _draw_pdf_header(pdf, "REKAPAN FEE DOKTER", period, export_status)
+    if include_summary:
+        y = _draw_pdf_header(pdf, "REKAPAN FEE DOKTER", period, export_status)
 
-    summary_data = [["NO", "NAMA", "FEE DOKTER", "FEE ORTHO", "TOTAL BILL", "PAJAK", "TRANSFER", "BANK", "NO REKENING"]]
-    for index, summary in enumerate(summaries, start=1):
-        doctor = session.get(Doctor, summary.doctor_id)
+        summary_data = [["NO", "NAMA", "FEE DOKTER", "FEE ORTHO", "TOTAL BILL", "PAJAK", "TRANSFER", "BANK", "NO REKENING"]]
+        for index, summary in enumerate(all_summaries, start=1):
+            doctor = session.get(Doctor, summary.doctor_id)
+            summary_data.append(
+                [
+                    index,
+                    _short_text(doctor.name if doctor else f"Dokter {summary.doctor_id}", 28),
+                    _money(summary.treatment_fee_total),
+                    _money(summary.ortho_fee_total),
+                    _money(summary.total_bill),
+                    _money(summary.tax),
+                    _money(summary.transfer_amount),
+                    doctor.bank_name if doctor and doctor.bank_name else "-",
+                    doctor.account_number if doctor and doctor.account_number else "-",
+                ]
+            )
         summary_data.append(
             [
-                index,
-                _short_text(doctor.name if doctor else f"Dokter {summary.doctor_id}", 28),
-                _money(summary.treatment_fee_total),
-                _money(summary.ortho_fee_total),
-                _money(summary.total_bill),
-                _money(summary.tax),
-                _money(summary.transfer_amount),
-                doctor.bank_name if doctor and doctor.bank_name else "-",
-                doctor.account_number if doctor and doctor.account_number else "-",
+                "",
+                "TOTAL",
+                _money(sum(row.treatment_fee_total for row in all_summaries)),
+                _money(sum(row.ortho_fee_total for row in all_summaries)),
+                _money(sum(row.total_bill for row in all_summaries)),
+                _money(sum(row.tax for row in all_summaries)),
+                _money(sum(row.transfer_amount for row in all_summaries)),
+                "",
+                "",
             ]
         )
-    summary_data.append(
-        [
-            "",
-            "TOTAL",
-            _money(sum(row.treatment_fee_total for row in summaries)),
-            _money(sum(row.ortho_fee_total for row in summaries)),
-            _money(sum(row.total_bill for row in summaries)),
-            _money(sum(row.tax for row in summaries)),
-            _money(sum(row.transfer_amount for row in summaries)),
-            "",
-            "",
-        ]
-    )
-    table = Table(summary_data, colWidths=[10 * mm, 45 * mm, 30 * mm, 30 * mm, 32 * mm, 28 * mm, 32 * mm, 30 * mm, 36 * mm])
-    table.setStyle(
-        TableStyle(
-            [
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("ALIGN", (2, 1), (6, -1), "RIGHT"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("FONTSIZE", (0, 0), (-1, -1), 7),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAFC")]),
-                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#D9EAF7")),
-                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-            ]
+        table = Table(summary_data, colWidths=[10 * mm, 45 * mm, 30 * mm, 30 * mm, 32 * mm, 28 * mm, 32 * mm, 30 * mm, 36 * mm])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (2, 1), (6, -1), "RIGHT"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAFC")]),
+                    ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#D9EAF7")),
+                    ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ]
+            )
         )
-    )
-    table_width, table_height = table.wrapOn(pdf, right - left, y)
-    table.drawOn(pdf, left, y - table_height)
+        table_width, table_height = table.wrapOn(pdf, right - left, y)
+        table.drawOn(pdf, left, y - table_height)
 
+    has_drawn_page = include_summary
     for summary in summaries:
         doctor = session.get(Doctor, summary.doctor_id)
         doctor_name = doctor.name if doctor else f"Dokter {summary.doctor_id}"
@@ -405,7 +413,7 @@ def doctor_fee_pdf(session: Session, period: str) -> BytesIO:
         ).all()
         rows = sorted(rows, key=lambda item: (item.transaction_date, item.patient_name.casefold(), item.id or 0))
 
-        doctor_index = summaries.index(summary) + 1
+        doctor_index = all_summaries.index(summary) + 1
         styles = getSampleStyleSheet()
         treatment_style = styles["BodyText"]
         treatment_style.fontSize = 5.6
@@ -435,7 +443,9 @@ def doctor_fee_pdf(session: Session, period: str) -> BytesIO:
         headers = ["Tanggal", "Nama Pasien", "Perawatan", "BHP", "Biaya Perawatan", "QTY", "Diskon", "Biaya Jasa", "Fee Dokter", "Fee Khusus Behel", "Total Biaya"]
 
         for chunk_index, chunk in enumerate(chunks):
-            pdf.showPage()
+            if has_drawn_page:
+                pdf.showPage()
+            has_drawn_page = True
             pdf.setFont("Helvetica", 10)
             pdf.drawCentredString(width / 2, height - 12 * mm, _clinic_name())
             pdf.setFont("Helvetica-Bold", 15)
@@ -500,6 +510,19 @@ def doctor_fee_pdf(session: Session, period: str) -> BytesIO:
             detail_table.drawOn(pdf, left, height - 45 * mm - table_height)
 
     pdf.save()
+    stream.seek(0)
+    return stream
+
+
+def doctor_fee_pdf_zip(session: Session, period: str) -> BytesIO:
+    summaries, _ = _doctor_fee_summaries(session, period)
+    stream = BytesIO()
+    with ZipFile(stream, "w", ZIP_DEFLATED) as archive:
+        for index, summary in enumerate(summaries, start=1):
+            doctor = session.get(Doctor, summary.doctor_id)
+            doctor_name = doctor.name if doctor else f"Dokter {summary.doctor_id}"
+            pdf = doctor_fee_pdf(session, period, doctor_id=summary.doctor_id, include_summary=False)
+            archive.writestr(f"{index:03d}-slip-fee-{period}-{_safe_filename(doctor_name)}.pdf", pdf.getvalue())
     stream.seek(0)
     return stream
 

@@ -336,6 +336,8 @@ async def import_transactions(session: SessionDep, _: CurrentUser, file: UploadF
 
 @router.post("/doctor-transactions/generate-random", response_model=RandomTransactionResult)
 def generate_random_transactions(period: str, session: SessionDep, _: CurrentUser, count: int = 36) -> RandomTransactionResult:
+    if not get_settings().is_development:
+        raise HTTPException(status_code=403, detail="Generate data tes hanya tersedia di development.")
     _ensure_period_unlocked(session, period)
     doctors = session.exec(select(Doctor).where(Doctor.is_active == True)).all()  # noqa: E712
     treatments = session.exec(select(Treatment).where(Treatment.is_active == True)).all()  # noqa: E712
