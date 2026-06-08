@@ -56,6 +56,8 @@ def test_transaction_create_edit_filter_and_delete():
             "treatment_id": treatment_id,
             "qty": 2,
             "discount_amount": 50_000,
+            "needs_review": True,
+            "review_note": "Cek ulang diskon",
         },
     )
 
@@ -65,6 +67,8 @@ def test_transaction_create_edit_filter_and_delete():
     assert row["service_amount"] == 410_000
     assert row["doctor_fee_amount"] == 246_000
     assert row["total_bill_amount"] == 650_000
+    assert row["needs_review"] is True
+    assert row["review_note"] == "Cek ulang diskon"
 
     assert client.get("/doctor-transactions?period=2026-05", headers=headers).json()[0]["id"] == row["id"]
     assert client.get("/doctor-transactions?period=2026-06", headers=headers).json() == []
@@ -80,10 +84,14 @@ def test_transaction_create_edit_filter_and_delete():
             "treatment_id": treatment_id,
             "qty": 1,
             "discount_amount": 0,
+            "needs_review": False,
+            "review_note": "Sudah dicek",
         },
     )
     assert update.status_code == 200
     assert update.json()["doctor_fee_amount"] == 138_000
+    assert update.json()["needs_review"] is False
+    assert update.json()["review_note"] is None
 
     delete = client.delete(f"/doctor-transactions/{row['id']}", headers=headers)
     assert delete.status_code == 200

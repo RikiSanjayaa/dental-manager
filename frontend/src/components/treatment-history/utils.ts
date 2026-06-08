@@ -14,6 +14,8 @@ export function emptyTransactionValues(period: string): TransactionFormValues {
     price_override: "",
     special_fee_amount: "0",
     fee_rate: "",
+    needs_review: "false",
+    review_note: "",
   };
 }
 
@@ -31,6 +33,8 @@ export function valuesFromTransaction(row: TreatmentTransaction): TransactionFor
     price_override: row.price_override === null || row.price_override === undefined ? "" : String(row.price_override),
     special_fee_amount: String(row.special_fee_amount ?? 0),
     fee_rate: row.fee_rate === null || row.fee_rate === undefined ? "" : String(row.fee_rate),
+    needs_review: String(Boolean(row.needs_review)),
+    review_note: row.review_note ?? "",
   };
 }
 
@@ -49,6 +53,8 @@ export function payloadFromEditor(editor: EditorSession) {
     price_override: values.price_override === "" ? null : Number(values.price_override),
     special_fee_amount: Number(values.special_fee_amount || 0),
     fee_rate: values.fee_rate === "" ? null : Number(values.fee_rate),
+    needs_review: values.needs_review === "true",
+    review_note: values.review_note.trim() || null,
   };
 }
 

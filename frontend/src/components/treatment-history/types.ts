@@ -52,6 +52,8 @@ export type TransactionFormValues = {
   price_override: string;
   special_fee_amount: string;
   fee_rate: string;
+  needs_review: string;
+  review_note: string;
 };
 
 export type EditorSession = {

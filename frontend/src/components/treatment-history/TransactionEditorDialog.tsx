@@ -5,6 +5,7 @@ import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { Field } from "@cloudflare/kumo/components/field";
 import { Grid, GridItem } from "@cloudflare/kumo/components/grid";
 import { Input } from "@cloudflare/kumo/components/input";
+import { Switch } from "@cloudflare/kumo/components/switch";
 
 import { rupiah } from "../../lib/api";
 import type { Doctor, EditorSession, Treatment } from "./types";
@@ -56,6 +57,7 @@ export function TransactionEditorDialog({
   const price = values.price_override === "" ? (selectedTreatment?.treatment_price ?? 0) : Number(values.price_override || 0);
   const service = Math.max(price * qty - bhp * qty - discount, 0);
   const bill = Math.max(price * qty - discount, 0);
+  const needsReview = values.needs_review === "true";
   const doctorOptions = doctors.map((doctor) => ({
     value: String(doctor.id),
     label: doctor.name,
@@ -93,9 +95,14 @@ export function TransactionEditorDialog({
 
   return (
     <Dialog.Root open={editor.open} onOpenChange={onOpenChange}>
-      <Dialog size="xl" className="max-h-[90vh] overflow-hidden p-0">
+      <Dialog
+        size="xl"
+        className="p-0"
+        style={{ height: "95vh", maxHeight: "95vh", overflow: "hidden" }}
+      >
         <form
-          className="treatment-history-editor-form flex max-h-[90vh] flex-col"
+          className="treatment-history-editor-form flex h-full min-h-0 flex-col"
+          style={{ display: "flex", height: "100%", minHeight: 0, flexDirection: "column" }}
           onSubmit={(event) => {
             event.preventDefault();
             onSubmit();
@@ -117,7 +124,10 @@ export function TransactionEditorDialog({
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto px-6 py-4">
+          <div
+            className="px-6 py-4"
+            style={{ minHeight: 0, flex: "1 1 0%", overflow: "auto" }}
+          >
             <Grid variant="2up" gap="sm">
               <Field
                 label="Periode"
@@ -141,6 +151,21 @@ export function TransactionEditorDialog({
                   onChange={(event) => onFieldChange("transaction_date", event.target.value)}
                 />
               </Field>
+              {needsReview ? (
+                <GridItem className="md:col-span-2" style={{ gridColumn: "1 / -1" }}>
+                  <Field
+                    label="Catatan Review"
+                    labelTooltip="Alasan transaksi ditandai perlu review, misalnya harga belum pasti, treatment perlu dicek, atau data pasien perlu konfirmasi."
+                    required={false}
+                  >
+                    <Input
+                      placeholder="Contoh: cek ulang harga atau fee khusus"
+                      value={values.review_note}
+                      onChange={(event) => onFieldChange("review_note", event.target.value)}
+                    />
+                  </Field>
+                </GridItem>
+              ) : null}
               <div className="w-full">
                 <Combobox
                   label="Dokter"
@@ -302,27 +327,42 @@ export function TransactionEditorDialog({
             </Grid>
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-kumo-hairline bg-kumo-base px-6 py-4">
-            <Dialog.Close render={(props) => <Button {...props} variant="secondary" type="button">Batal</Button>} />
-            {editor.mode === "create" ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-kumo-hairline bg-kumo-base px-6 py-4">
+            <div className="flex items-center gap-2">
+              <Switch
+                size="sm"
+                variant="neutral"
+                label="Perlu review"
+                labelTooltip="Nyalakan jika transaksi perlu dicek lagi sebelum rekap Fee Dokter dilock."
+                checked={needsReview}
+                onCheckedChange={(checked) => onFieldChange("needs_review", checked ? "true" : "false")}
+              />
+              <Badge variant={needsReview ? "error" : "success"}>
+                {needsReview ? "Review" : "OK"}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Dialog.Close render={(props) => <Button {...props} variant="secondary" type="button">Batal</Button>} />
+              {editor.mode === "create" ? (
+                <Button
+                  variant="secondary"
+                  type="button"
+                  loading={isSaving}
+                  disabled={!values.doctor_id || !values.patient_name.trim() || !values.treatment_name_snapshot.trim()}
+                  onClick={onSubmitAndAddAnother}
+                >
+                  Simpan & tambah perawatan
+                </Button>
+              ) : null}
               <Button
-                variant="secondary"
-                type="button"
+                variant="primary"
+                type="submit"
                 loading={isSaving}
                 disabled={!values.doctor_id || !values.patient_name.trim() || !values.treatment_name_snapshot.trim()}
-                onClick={onSubmitAndAddAnother}
               >
-                Simpan & tambah perawatan
+                Simpan
               </Button>
-            ) : null}
-            <Button
-              variant="primary"
-              type="submit"
-              loading={isSaving}
-              disabled={!values.doctor_id || !values.patient_name.trim() || !values.treatment_name_snapshot.trim()}
-            >
-              Simpan
-            </Button>
+            </div>
           </div>
         </form>
       </Dialog>

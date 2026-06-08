@@ -8,6 +8,7 @@ import { Input } from "@cloudflare/kumo/components/input";
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { Select } from "@cloudflare/kumo/components/select";
 import { Text } from "@cloudflare/kumo/components/text";
+import { Tooltip } from "@cloudflare/kumo/components/tooltip";
 import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart } from "echarts/charts";
@@ -94,15 +95,40 @@ const statusLabel: Record<PeriodStatus, string> = {
   locked: "Locked / final",
 };
 
+function statusTooltip(status: PeriodStatus | string) {
+  if (status === "locked") return "Periode sudah final dan transaksi bulan ini tidak bisa diubah.";
+  if (status === "draft") return "Rekap sudah dihitung, tetapi belum dikunci sebagai final.";
+  if (status === "not_calculated") return "Transaksi sudah ada, tetapi rekap fee dokter belum dihitung.";
+  return "Belum ada transaksi dokter untuk periode ini.";
+}
+
 function statusBadge(status: PeriodStatus | string) {
-  if (status === "locked") return <Badge variant="success">locked</Badge>;
-  if (status === "draft") return <Badge variant="info">draft</Badge>;
-  if (status === "not_calculated") return <Badge variant="secondary">belum dihitung</Badge>;
-  return <Badge variant="secondary">{status}</Badge>;
+  const badge =
+    status === "locked" ? (
+      <Badge variant="success">locked</Badge>
+    ) : status === "draft" ? (
+      <Badge variant="info">draft</Badge>
+    ) : status === "not_calculated" ? (
+      <Badge variant="secondary">belum dihitung</Badge>
+    ) : (
+      <Badge variant="secondary">{status}</Badge>
+    );
+  return <Tooltip content={statusTooltip(status)}>{badge}</Tooltip>;
 }
 
 function includesText(value: unknown, query: string) {
   return String(value ?? "").toLowerCase().includes(query.trim().toLowerCase());
+}
+
+function previousPeriod(period: string) {
+  const [year, month] = period.split("-").map(Number);
+  const previous = new Date(year, month - 2, 1);
+  return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function deltaPercent(current: number, previous: number) {
+  if (!previous) return current ? 100 : 0;
+  return ((current - previous) / previous) * 100;
 }
 
 export function DoctorFeesPage() {
@@ -117,6 +143,11 @@ export function DoctorFeesPage() {
   const { data: overview } = useQuery({
     queryKey: ["doctor-period-overview", period],
     queryFn: () => api<Overview>(`/doctor-periods/${period}/overview`),
+  });
+  const previous = previousPeriod(period);
+  const { data: previousOverview } = useQuery({
+    queryKey: ["doctor-period-overview", previous],
+    queryFn: () => api<Overview>(`/doctor-periods/${previous}/overview`),
   });
 
   const selectedDoctorQuery = selectedDoctorId ? `&doctor_id=${selectedDoctorId}` : "";
@@ -223,26 +254,33 @@ export function DoctorFeesPage() {
     return { variant: "secondary" as const, description: "Transaksi sudah ada. Jalankan Hitung Ulang untuk membuat rekap fee dokter." };
   }, [overview]);
 
-  const feeChartItems = useMemo(
+  const comparisonItems = useMemo(
     () => [
-      { label: "Billing Pasien", value: overview?.total_bill ?? 0, color: ChartPalette.categorical(0) },
-      { label: "Total Fee", value: overview?.total_fee ?? 0, color: ChartPalette.categorical(4) },
-      { label: "Transfer", value: overview?.transfer_amount ?? 0, color: ChartPalette.semantic("Success") },
-      { label: "Pajak", value: overview?.tax ?? 0, color: ChartPalette.semantic("Warning") },
-      { label: "Potongan", value: overview?.deduction ?? 0, color: ChartPalette.semantic("Attention") },
+      { label: "Billing Pasien", current: overview?.total_bill ?? 0, previous: previousOverview?.total_bill ?? 0 },
+      { label: "Total Fee", current: overview?.total_fee ?? 0, previous: previousOverview?.total_fee ?? 0 },
+      { label: "Transfer", current: overview?.transfer_amount ?? 0, previous: previousOverview?.transfer_amount ?? 0 },
+      { label: "Pajak", current: overview?.tax ?? 0, previous: previousOverview?.tax ?? 0 },
     ],
-    [overview],
+    [overview, previousOverview],
   );
 
   const feeChartOptions = useMemo<KumoChartOption>(
     () => ({
-      grid: { left: 108, right: 116, top: 8, bottom: 8 },
+      color: [ChartPalette.categorical(0), ChartPalette.semantic("Success")],
+      legend: {
+        top: 0,
+        right: 0,
+        textStyle: { color: ChartPalette.text("secondary"), fontSize: 11 },
+      },
+      grid: { left: 108, right: 24, top: 34, bottom: 8 },
       tooltip: {
         trigger: "axis",
         axisPointer: { type: "shadow" },
         dangerousHtmlFormatter: (params) => {
-          const item = Array.isArray(params) ? params[0] : params;
-          return `${item.name}<br/><strong>${rupiah.format(Number(item.value ?? 0))}</strong>`;
+          const rows = (Array.isArray(params) ? params : [params])
+            .map((item) => `${item.marker ?? ""} ${item.seriesName}: <strong>${rupiah.format(Number(item.value ?? 0))}</strong>`)
+            .join("<br/>");
+          return `${(Array.isArray(params) ? params[0] : params).name}<br/>${rows}`;
         },
       },
       xAxis: {
@@ -255,30 +293,29 @@ export function DoctorFeesPage() {
       yAxis: {
         type: "category",
         inverse: true,
-        data: feeChartItems.map((item) => item.label),
+        data: comparisonItems.map((item) => item.label),
         axisLine: { show: false },
         axisTick: { show: false },
         axisLabel: { color: ChartPalette.text("primary"), fontSize: 12 },
       },
       series: [
         {
+          name: `Bulan lalu (${previous})`,
           type: "bar",
-          barWidth: 14,
-          data: feeChartItems.map((item) => ({
-            value: item.value,
-            itemStyle: { color: item.color, borderRadius: [0, 4, 4, 0] },
-          })),
-          label: {
-            show: true,
-            position: "right",
-            color: ChartPalette.text("primary"),
-            fontSize: 11,
-            formatter: (params) => rupiah.format(Number(params.value ?? 0)),
-          },
+          barWidth: 10,
+          data: comparisonItems.map((item) => item.previous),
+          itemStyle: { borderRadius: [0, 4, 4, 0] },
+        },
+        {
+          name: `Bulan ini (${period})`,
+          type: "bar",
+          barWidth: 10,
+          data: comparisonItems.map((item) => item.current),
+          itemStyle: { borderRadius: [0, 4, 4, 0] },
         },
       ],
     }),
-    [feeChartItems],
+    [comparisonItems, period, previous],
   );
 
   async function exportWorkbook() {
@@ -385,19 +422,26 @@ export function DoctorFeesPage() {
               {statusLabel[overview?.status ?? "empty"]} untuk periode {period}.
             </p>
           </div>
-          {statusBadge(overview?.status ?? "empty")}
+          <div className="flex items-center gap-2">
+            <Tooltip content="Jumlah transaksi yang masih perlu dicek karena treatment/master data belum cocok. Harus 0 sebelum periode bisa di-lock.">
+              <Badge variant={overview?.review_count ? "error" : "success"}>
+                {overview?.review_count ?? 0} review
+              </Badge>
+            </Tooltip>
+            {statusBadge(overview?.status ?? "empty")}
+          </div>
         </div>
 
         <div className="grid gap-3">
           <div className="rounded-md border border-kumo-hairline bg-kumo-base p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
               <div>
-                <Text as="strong" variant="body" bold>Komposisi Nominal</Text>
-                <p className="mt-0.5 text-xs text-kumo-subtle">Perbandingan billing, fee, transfer, pajak, dan potongan.</p>
+                <Text as="strong" variant="body" bold>Perbandingan Bulanan</Text>
+                <p className="mt-0.5 text-xs text-kumo-subtle">
+                  Membandingkan {period} dengan {previous} untuk metrik rekap utama.
+                </p>
               </div>
-              <Badge variant={overview?.review_count ? "error" : "success"}>
-                {overview?.review_count ?? 0} review
-              </Badge>
+              {previousOverview?.status ? statusBadge(previousOverview.status) : null}
             </div>
             <Chart
               echarts={echarts}
@@ -407,17 +451,20 @@ export function DoctorFeesPage() {
             />
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              ["Dokter", overview?.doctor_count ?? 0],
-              ["Transaksi", overview?.transaction_count ?? 0],
-              ["Fee Ortho/Behel", rupiah.format(overview?.ortho_fee_total ?? 0)],
-              ["Status", statusLabel[overview?.status ?? "empty"]],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-md border border-kumo-hairline bg-kumo-base px-3 py-2">
-                <div className="text-[11px] font-medium uppercase text-kumo-subtle">{label}</div>
-                <div className="mt-0.5 truncate text-sm font-semibold text-kumo-default">{value}</div>
+            {comparisonItems.map((item) => {
+              const delta = deltaPercent(item.current, item.previous);
+              const variant = delta > 0 ? "success" : delta < 0 ? "error" : "secondary";
+              return (
+              <div key={item.label} className="rounded-md border border-kumo-hairline bg-kumo-base px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-medium uppercase text-kumo-subtle">{item.label}</div>
+                  <Badge variant={variant}>{delta > 0 ? "+" : ""}{delta.toFixed(0)}%</Badge>
+                </div>
+                <div className="mt-0.5 truncate text-sm font-semibold text-kumo-default">{rupiah.format(item.current)}</div>
+                <div className="mt-0.5 truncate text-xs text-kumo-subtle">Bulan lalu {rupiah.format(item.previous)}</div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

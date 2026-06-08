@@ -111,6 +111,8 @@ export function TreatmentHistoryPage() {
             price_override: "",
             special_fee_amount: "0",
             fee_rate: "",
+            needs_review: "false",
+            review_note: "",
           },
         }));
       } else {

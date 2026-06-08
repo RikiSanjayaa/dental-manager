@@ -32,6 +32,8 @@ class DoctorTransactionInput(BaseModel):
     price_override: float | None = None
     special_fee_amount: float = 0
     fee_rate: float | None = None
+    needs_review: bool | None = None
+    review_note: str | None = None
 
 
 class DoctorTransactionRead(BaseModel):
@@ -204,8 +206,13 @@ def _prepare_transaction(session: SessionDep, payload: DoctorTransactionInput, r
     else:
         row = DoctorTransaction(**values)
 
-    row.needs_review = treatment is None
-    row.review_note = None if treatment else "Treatment belum ditemukan di master."
+    auto_needs_review = treatment is None
+    row.needs_review = auto_needs_review if payload.needs_review is None else payload.needs_review
+    review_note = payload.review_note.strip() if payload.review_note and payload.review_note.strip() else None
+    if row.needs_review:
+        row.review_note = review_note or ("Treatment belum ditemukan di master." if auto_needs_review else "Ditandai perlu review.")
+    else:
+        row.review_note = None
     default_rule = session.exec(select(DoctorFeeRule).where(DoctorFeeRule.is_default == True)).first()  # noqa: E712
     calculate_doctor_transaction(row, treatment, doctor, default_rule or DoctorFeeRule(name="Fallback", is_default=True))
     return row
