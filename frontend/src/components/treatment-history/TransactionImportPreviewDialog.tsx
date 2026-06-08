@@ -96,7 +96,7 @@ export function TransactionImportPreviewDialog({
             ) : null}
 
             {preview && !isPreviewPending ? (
-              <div className="flex min-h-0 flex-col gap-4">
+              <div className="flex flex-col gap-4" style={{ flex: "1 1 0%", minHeight: 0 }}>
                 {session.committed ? (
                   <Banner
                     variant="default"
@@ -112,7 +112,7 @@ export function TransactionImportPreviewDialog({
                   {metric("Transaksi", preview.summary.transactions ?? preview.valid_rows, "default")}
                 </div>
 
-                <div className="min-h-[220px] overflow-auto rounded-lg border border-kumo-hairline bg-kumo-base">
+                <div className="rounded-lg border border-kumo-hairline bg-kumo-base" style={{ flex: "1 1 0%", minHeight: 0, overflow: "auto" }}>
                   <Table className="w-full min-w-[760px]">
                     <Table.Header sticky>
                       <Table.Row>

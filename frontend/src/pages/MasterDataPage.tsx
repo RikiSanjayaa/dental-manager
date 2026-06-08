@@ -541,13 +541,11 @@ export function MasterDataPage() {
       </LayerCard>
 
       {/* Footer hint */}
-      <div className="pb-8">
-        <Banner
-          variant="secondary"
-          icon={<Building2 size={20} />}
-          description="Master data hanya menerima template khusus per tab. File transaksi fee dokter dan absensi tetap diimport dari halaman masing-masing."
-        />
-      </div>
+      <Banner
+        variant="secondary"
+        icon={<Building2 size={20} />}
+        description="Master data hanya menerima template khusus per tab. File transaksi fee dokter dan absensi tetap diimport dari halaman masing-masing."
+      />
 
       {/* Dialogs */}
       <RecordEditorDialog

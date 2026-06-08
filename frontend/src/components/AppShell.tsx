@@ -63,7 +63,9 @@ function AppShellFrame({ user }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const [mode, setMode] = useState<"light" | "dark">(() => {
-    return localStorage.getItem("dental_manager_mode") === "dark" ? "dark" : "light";
+    return localStorage.getItem("dental_manager_mode") === "dark"
+      ? "dark"
+      : "light";
   });
   const [logoutHovered, setLogoutHovered] = useState(false);
 
@@ -80,17 +82,27 @@ function AppShellFrame({ user }: Props) {
       .slice(0, 2)
       .toUpperCase();
   }, [user.full_name]);
-  const sidebarOffset = state === "expanded" ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH;
+  const sidebarOffset =
+    state === "expanded" ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH;
 
   return (
     <>
-      <Sidebar className="app-sidebar fixed top-0 bottom-0 left-0 z-30" style={{ height: "100vh" }}>
+      <Sidebar
+        className="app-sidebar fixed top-0 bottom-0 left-0 z-30"
+        style={{ height: "100vh" }}
+      >
         <Sidebar.Header>
           <div className="flex min-w-0 items-center gap-2">
             <div className="grid size-8 shrink-0 place-items-center text-kumo-brand">
               <Stethoscope size={24} />
             </div>
-            <Text as="strong" variant="body" bold truncate DANGEROUS_className="block min-w-0">
+            <Text
+              as="strong"
+              variant="body"
+              bold
+              truncate
+              DANGEROUS_className="block min-w-0"
+            >
               {brandName}
             </Text>
           </div>
@@ -100,7 +112,10 @@ function AppShellFrame({ user }: Props) {
           <Sidebar.Group>
             <Sidebar.Menu className="app-sidebar-menu">
               {nav.map((item) => {
-                const active = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
+                const active =
+                  item.to === "/"
+                    ? location.pathname === "/"
+                    : location.pathname.startsWith(item.to);
                 return (
                   <Sidebar.MenuButton
                     key={item.to}
@@ -131,7 +146,8 @@ function AppShellFrame({ user }: Props) {
               style={
                 logoutHovered
                   ? {
-                      backgroundColor: "color-mix(in oklab, var(--color-kumo-danger-tint) 72%, transparent)",
+                      backgroundColor:
+                        "color-mix(in oklab, var(--color-kumo-danger-tint) 72%, transparent)",
                       color: "var(--text-color-kumo-danger)",
                     }
                   : undefined
@@ -153,7 +169,12 @@ function AppShellFrame({ user }: Props) {
       >
         <header
           className="sticky top-0 z-20 flex items-center gap-3 border-b border-kumo-hairline bg-kumo-base px-5"
-          style={{ height: 56, minHeight: 56, paddingLeft: 20, paddingRight: 20 }}
+          style={{
+            height: 56,
+            minHeight: 56,
+            paddingLeft: 20,
+            paddingRight: 20,
+          }}
         >
           <Sidebar.Trigger aria-label="Toggle sidebar" />
 
@@ -168,14 +189,28 @@ function AppShellFrame({ user }: Props) {
             <Button
               variant="ghost"
               shape="square"
-              aria-label={mode === "dark" ? "Gunakan mode terang" : "Gunakan mode gelap"}
+              aria-label={
+                mode === "dark" ? "Gunakan mode terang" : "Gunakan mode gelap"
+              }
               icon={mode === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-              onClick={() => setMode((current) => (current === "dark" ? "light" : "dark"))}
+              onClick={() =>
+                setMode((current) => (current === "dark" ? "light" : "dark"))
+              }
             />
 
-            <div className="flex items-center gap-2 border-l border-kumo-hairline pl-3" style={{ width: 190 }}>
+            <div
+              className="flex items-center gap-2 border-l border-kumo-hairline pl-3"
+              style={{ width: 190 }}
+            >
               <div className="grid min-w-0 flex-1 justify-items-end">
-                <Text as="strong" variant="body" bold size="sm" truncate DANGEROUS_className="block max-w-full">
+                <Text
+                  as="strong"
+                  variant="body"
+                  bold
+                  size="sm"
+                  truncate
+                  DANGEROUS_className="block max-w-full"
+                >
                   {user.full_name}
                 </Text>
                 <Badge variant="info">{user.role}</Badge>
@@ -197,8 +232,12 @@ function AppShellFrame({ user }: Props) {
             </div>
           </div>
         </header>
-        <div className="mx-auto flex w-full flex-col gap-5 px-6 py-6" style={{ maxWidth: 1280 }}>
+        <div
+          className="mx-auto flex w-full flex-col gap-5 px-6 py-6"
+          style={{ maxWidth: 1280 }}
+        >
           <Outlet />
+          <div aria-hidden="true" style={{ height: 16, flex: "0 0 16px" }} />
         </div>
       </main>
     </>

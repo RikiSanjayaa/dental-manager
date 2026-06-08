@@ -131,3 +131,20 @@ def test_doctor_fee_lock_rejects_review_rows_and_export_has_detail_sheet():
     assert len(names) == 1
     assert names[0].endswith(".pdf")
     assert archive.read(names[0]).startswith(b"%PDF")
+
+    archives = client.get("/reports/archive", headers=headers)
+    assert archives.status_code == 200
+    archive_rows = archives.json()
+    filenames = {row["filename"] for row in archive_rows}
+    assert "doctor-fees-2026-05.xlsx" in filenames
+    assert "doctor-fees-2026-05.pdf" in filenames
+    assert "doctor-fees-2026-05-per-dokter.zip" in filenames
+
+    xlsx_archive = next(row for row in archive_rows if row["filename"] == "doctor-fees-2026-05.xlsx")
+    archived_download = client.get(f"/reports/archive/{xlsx_archive['id']}/download", headers=headers)
+    assert archived_download.status_code == 200
+    assert archived_download.content.startswith(b"PK")
+
+    deleted = client.delete(f"/reports/archive/{xlsx_archive['id']}", headers=headers)
+    assert deleted.status_code == 200
+    assert client.get(f"/reports/archive/{xlsx_archive['id']}/download", headers=headers).status_code == 404

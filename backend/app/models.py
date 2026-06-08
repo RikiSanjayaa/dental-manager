@@ -124,6 +124,22 @@ class ImportFile(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ReportArchive(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    report_type: str = Field(index=True)
+    period: str = Field(index=True)
+    status: str = Field(index=True)
+    format: str = Field(index=True)
+    filename: str
+    stored_path: str
+    media_type: str
+    file_size: int = 0
+    created_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    created_by_name: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    expires_at: datetime = Field(index=True)
+
+
 class DoctorTransaction(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     period: str = Field(index=True)

@@ -125,7 +125,7 @@ export function ImportPreviewDialog({
 
             {/* Preview results */}
             {preview && !isPreviewPending ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div style={{ display: "flex", flex: "1 1 0%", minHeight: 0, flexDirection: "column", gap: "16px" }}>
                 {session.committed ? (
                   <Banner
                     variant="default"
@@ -163,7 +163,7 @@ export function ImportPreviewDialog({
 
                 {/* Preview table */}
                 <div
-                  style={{ maxHeight: "40vh", overflowY: "auto" }}
+                  style={{ flex: "1 1 0%", minHeight: 0, overflow: "auto" }}
                   className="rounded-lg border border-kumo-hairline bg-kumo-base"
                 >
                   <Table className="w-full min-w-[720px]">
