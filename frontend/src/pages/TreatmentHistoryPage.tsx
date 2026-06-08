@@ -9,6 +9,7 @@ import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileDown, FileUp, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { ChangeEvent, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { DataTable } from "../components/DataTable";
 import { TransactionEditorDialog } from "../components/treatment-history/TransactionEditorDialog";
@@ -34,9 +35,10 @@ import { brandName } from "../lib/brand";
 export function TreatmentHistoryPage() {
   const queryClient = useQueryClient();
   const toasts = useKumoToastManager();
-  const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
+  const [searchParams] = useSearchParams();
+  const [period, setPeriod] = useState(searchParams.get("period") ?? new Date().toISOString().slice(0, 7));
   const [search, setSearch] = useState("");
-  const [doctorFilter, setDoctorFilter] = useState("all");
+  const [doctorFilter, setDoctorFilter] = useState(searchParams.get("doctor_id") ?? "all");
   const [reviewFilter, setReviewFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());

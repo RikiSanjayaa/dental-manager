@@ -1,28 +1,76 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Banner } from "@cloudflare/kumo/components/banner";
+import { Breadcrumbs } from "@cloudflare/kumo/components/breadcrumbs";
 import { Button, LinkButton } from "@cloudflare/kumo/components/button";
+import { Chart, ChartPalette, type KumoChartOption } from "@cloudflare/kumo/components/chart";
+import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
 import { Input } from "@cloudflare/kumo/components/input";
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
+import { Select } from "@cloudflare/kumo/components/select";
 import { Text } from "@cloudflare/kumo/components/text";
+import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calculator, FileDown, FileUp, Lock, Sheet } from "lucide-react";
-import { ChangeEvent, useState } from "react";
+import { BarChart } from "echarts/charts";
+import { GridComponent, TooltipComponent } from "echarts/components";
+import * as echarts from "echarts/core";
+import { CanvasRenderer } from "echarts/renderers";
+import {
+  Calculator,
+  Database,
+  ExternalLink,
+  Eye,
+  FileText,
+  FileSpreadsheet,
+  Lock,
+  MoreHorizontal,
+  Search,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { DataTable } from "../components/DataTable";
-import { PageHeader } from "../components/PageHeader";
 import { api, downloadFile, rupiah } from "../lib/api";
+import { brandName } from "../lib/brand";
 
-type Summary = {
+echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
+
+type PeriodStatus = "empty" | "not_calculated" | "draft" | "locked";
+
+type DoctorSummary = {
   id: number;
   doctor_id: number;
+  doctor_name: string;
+  bank_name: string | null;
+  account_name: string | null;
+  account_number: string | null;
+  transaction_count: number;
   treatment_fee_total: number;
   ortho_fee_total: number;
   total_fee: number;
   total_bill: number;
+  deduction: number;
   tax: number;
   transfer_amount: number;
   status: string;
+  calculated_at: string;
 };
+
+type Overview = {
+  period: string;
+  status: PeriodStatus;
+  doctor_count: number;
+  transaction_count: number;
+  review_count: number;
+  total_bill: number;
+  treatment_fee_total: number;
+  ortho_fee_total: number;
+  total_fee: number;
+  deduction: number;
+  tax: number;
+  transfer_amount: number;
+  summaries: DoctorSummary[];
+};
+
 type Transaction = {
   id: number;
   transaction_date: string;
@@ -30,97 +78,465 @@ type Transaction = {
   treatment_name_snapshot: string;
   qty: number;
   discount_amount: number;
+  bhp_amount: number;
+  price_amount: number;
+  service_amount: number;
   doctor_fee_amount: number;
+  special_fee_amount: number;
   total_bill_amount: number;
   needs_review: boolean;
 };
 
+const statusLabel: Record<PeriodStatus, string> = {
+  empty: "Belum ada transaksi",
+  not_calculated: "Belum dihitung",
+  draft: "Draft sudah dihitung",
+  locked: "Locked / final",
+};
+
+function statusBadge(status: PeriodStatus | string) {
+  if (status === "locked") return <Badge variant="success">locked</Badge>;
+  if (status === "draft") return <Badge variant="info">draft</Badge>;
+  if (status === "not_calculated") return <Badge variant="secondary">belum dihitung</Badge>;
+  return <Badge variant="secondary">{status}</Badge>;
+}
+
+function includesText(value: unknown, query: string) {
+  return String(value ?? "").toLowerCase().includes(query.trim().toLowerCase());
+}
+
 export function DoctorFeesPage() {
-  const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
-  const [message, setMessage] = useState<string | null>(null);
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: summaries } = useQuery({ queryKey: ["doctor-summary", period], queryFn: () => api<Summary[]>(`/doctor-periods/${period}/summary`) });
-  const { data: transactions } = useQuery({ queryKey: ["doctor-transactions", period], queryFn: () => api<Transaction[]>(`/doctor-transactions?period=${period}`) });
-  const calculate = useMutation({
-    mutationFn: () => api(`/doctor-periods/${period}/calculate`, { method: "POST" }),
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["doctor-summary", period] }),
-  });
-  const lock = useMutation({
-    mutationFn: () => api(`/doctor-periods/${period}/lock`, { method: "POST" }),
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["doctor-summary", period] }),
-  });
-  const upload = useMutation({
-    mutationFn: async (file: File) => {
-      const form = new FormData();
-      form.set("file", file);
-      return api<{ created: number; invalid_rows: number }>("/doctor-transactions/import", { method: "POST", body: form });
-    },
-    onSuccess: async (result) => {
-      setMessage(`Import transaksi dokter: ${result.created} baris dibuat, ${result.invalid_rows} invalid.`);
-      await queryClient.invalidateQueries({ queryKey: ["doctor-transactions", period] });
-    },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Import transaksi dokter gagal."),
+  const toasts = useKumoToastManager();
+  const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(null);
+
+  const { data: overview } = useQuery({
+    queryKey: ["doctor-period-overview", period],
+    queryFn: () => api<Overview>(`/doctor-periods/${period}/overview`),
   });
 
-  function onImport(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) upload.mutate(file);
-    event.target.value = "";
+  const selectedDoctorQuery = selectedDoctorId ? `&doctor_id=${selectedDoctorId}` : "";
+  const { data: transactions } = useQuery({
+    queryKey: ["doctor-fee-transactions", period, selectedDoctorId],
+    queryFn: () => api<Transaction[]>(`/doctor-transactions?period=${period}${selectedDoctorQuery}`),
+  });
+
+  const calculate = useMutation({
+    mutationFn: () => api(`/doctor-periods/${period}/calculate`, { method: "POST" }),
+    onSuccess: async () => {
+      toasts.add({ title: "Fee dokter selesai dihitung", variant: "success" });
+      await queryClient.invalidateQueries({ queryKey: ["doctor-period-overview", period] });
+      await queryClient.invalidateQueries({ queryKey: ["doctor-fee-transactions", period] });
+    },
+    onError: (error) =>
+      toasts.add({
+        title: "Fee dokter gagal dihitung",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      }),
+  });
+
+  const lock = useMutation({
+    mutationFn: () => api(`/doctor-periods/${period}/lock`, { method: "POST" }),
+    onSuccess: async () => {
+      toasts.add({ title: "Periode fee dokter dikunci", variant: "success" });
+      await queryClient.invalidateQueries({ queryKey: ["doctor-period-overview", period] });
+    },
+    onError: (error) =>
+      toasts.add({
+        title: "Periode gagal dikunci",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      }),
+  });
+
+  const generateRandom = useMutation({
+    mutationFn: () =>
+      api<{ period: string; created: number; calculated: number }>(
+        `/doctor-transactions/generate-random?period=${period}&count=42`,
+        { method: "POST" },
+      ),
+    onSuccess: async (result) => {
+      toasts.add({
+        title: "Data tes riwayat perawatan dibuat",
+        description: `${result.created} transaksi random ditambahkan dan ${result.calculated} dokter dihitung ulang.`,
+        variant: "success",
+      });
+      await queryClient.invalidateQueries({ queryKey: ["doctor-period-overview", period] });
+      await queryClient.invalidateQueries({ queryKey: ["doctor-fee-transactions", period] });
+    },
+    onError: (error) =>
+      toasts.add({
+        title: "Generate data tes gagal",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      }),
+  });
+
+  const filteredSummaries = useMemo(() => {
+    return (overview?.summaries ?? []).filter((row) => {
+      const matchesSearch =
+        !search ||
+        [row.doctor_name, row.bank_name, row.account_name, row.account_number].some((value) =>
+          includesText(value, search),
+        );
+      const matchesStatus = statusFilter === "all" || row.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [overview?.summaries, search, statusFilter]);
+
+  const selectedSummary = useMemo(
+    () => filteredSummaries.find((row) => row.doctor_id === selectedDoctorId) ?? filteredSummaries[0],
+    [filteredSummaries, selectedDoctorId],
+  );
+
+  useEffect(() => {
+    if (!filteredSummaries.length) {
+      setSelectedDoctorId(null);
+      return;
+    }
+    if (!selectedDoctorId || !filteredSummaries.some((row) => row.doctor_id === selectedDoctorId)) {
+      setSelectedDoctorId(filteredSummaries[0].doctor_id);
+    }
+  }, [filteredSummaries, selectedDoctorId]);
+
+  const banner = useMemo(() => {
+    if (!overview || overview.status === "empty") {
+      return { variant: "secondary" as const, description: "Belum ada transaksi dokter untuk periode ini." };
+    }
+    if (overview.review_count > 0) {
+      return {
+        variant: "alert" as const,
+        description: `${overview.review_count} transaksi masih perlu review di Riwayat Perawatan sebelum periode bisa dikunci.`,
+      };
+    }
+    if (overview.status === "locked") {
+      return { variant: "default" as const, description: "Periode ini sudah locked. Transaksi bulan ini tidak bisa diubah." };
+    }
+    if (overview.status === "draft") {
+      return { variant: "secondary" as const, description: "Draft sudah dihitung. Cek detail dokter, lalu lock jika angka sudah final." };
+    }
+    return { variant: "secondary" as const, description: "Transaksi sudah ada. Jalankan Hitung Ulang untuk membuat rekap fee dokter." };
+  }, [overview]);
+
+  const feeChartItems = useMemo(
+    () => [
+      { label: "Billing Pasien", value: overview?.total_bill ?? 0, color: ChartPalette.categorical(0) },
+      { label: "Total Fee", value: overview?.total_fee ?? 0, color: ChartPalette.categorical(4) },
+      { label: "Transfer", value: overview?.transfer_amount ?? 0, color: ChartPalette.semantic("Success") },
+      { label: "Pajak", value: overview?.tax ?? 0, color: ChartPalette.semantic("Warning") },
+      { label: "Potongan", value: overview?.deduction ?? 0, color: ChartPalette.semantic("Attention") },
+    ],
+    [overview],
+  );
+
+  const feeChartOptions = useMemo<KumoChartOption>(
+    () => ({
+      grid: { left: 108, right: 116, top: 8, bottom: 8 },
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        dangerousHtmlFormatter: (params) => {
+          const item = Array.isArray(params) ? params[0] : params;
+          return `${item.name}<br/><strong>${rupiah.format(Number(item.value ?? 0))}</strong>`;
+        },
+      },
+      xAxis: {
+        type: "value",
+        axisLabel: { show: false },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.18)" } },
+      },
+      yAxis: {
+        type: "category",
+        inverse: true,
+        data: feeChartItems.map((item) => item.label),
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: ChartPalette.text("primary"), fontSize: 12 },
+      },
+      series: [
+        {
+          type: "bar",
+          barWidth: 14,
+          data: feeChartItems.map((item) => ({
+            value: item.value,
+            itemStyle: { color: item.color, borderRadius: [0, 4, 4, 0] },
+          })),
+          label: {
+            show: true,
+            position: "right",
+            color: ChartPalette.text("primary"),
+            fontSize: 11,
+            formatter: (params) => rupiah.format(Number(params.value ?? 0)),
+          },
+        },
+      ],
+    }),
+    [feeChartItems],
+  );
+
+  async function exportWorkbook() {
+    try {
+      await downloadFile(`/reports/doctor-fees?period=${period}&format=xlsx`, `doctor-fees-${period}.xlsx`);
+    } catch (error) {
+      toasts.add({
+        title: "Export fee dokter gagal",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      });
+    }
+  }
+
+  async function exportPdf() {
+    try {
+      await downloadFile(`/reports/doctor-fees?period=${period}&format=pdf`, `doctor-fees-${period}.pdf`);
+    } catch (error) {
+      toasts.add({
+        title: "Export PDF fee dokter gagal",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      });
+    }
+  }
+
+  function openTreatmentHistory(doctorId?: number) {
+    const params = new URLSearchParams({ period });
+    if (doctorId) params.set("doctor_id", String(doctorId));
+    navigate(`/treatment-history?${params.toString()}`);
   }
 
   return (
     <>
-      <PageHeader
-        title="Fee Dokter"
-        eyebrow="Tindakan, jasa, pajak, transfer"
-        actions={
-          <>
-            <Input className="w-40" aria-label="Periode fee dokter" type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
-            <LinkButton variant="secondary" href="/api/reports/templates/doctor-transactions.xlsx" download="doctor-transactions-template.xlsx" icon={<FileDown size={18} />}>
-              Format Transaksi
-            </LinkButton>
-            <label className="relative inline-flex h-9 cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-lg bg-kumo-base px-3 text-kumo-default ring ring-kumo-hairline hover:bg-kumo-tint">
-              <FileUp size={18} />
-              Import Transaksi
-              <input className="absolute inset-0 cursor-pointer opacity-0" type="file" accept=".xlsx,.xls" onChange={onImport} />
-            </label>
-            <Button variant="secondary" icon={<Calculator size={18} />} loading={calculate.isPending} onClick={() => calculate.mutate()}>Calculate</Button>
-            <Button variant="secondary" icon={<Lock size={18} />} loading={lock.isPending} onClick={() => lock.mutate()}>Lock</Button>
-          </>
-        }
-      />
-      {message ? <Banner variant="default" description={message} /> : null}
-      <Banner variant="secondary" description="Import di halaman ini hanya untuk transaksi tindakan dokter. Master dokter dan treatment diatur dari Master Data." />
-      <LayerCard className="p-4">
-        <div className="mb-4 flex items-center justify-between gap-4">
-          <Text as="h2" variant="heading3">Rekap Transfer</Text>
-          <Button variant="secondary" icon={<Sheet size={18} />} onClick={() => downloadFile(`/reports/doctor-fees?period=${period}&format=xlsx`, `doctor-fees-${period}.xlsx`)}>XLSX</Button>
+      <div className="border-b border-kumo-line">
+        <Breadcrumbs size="sm">
+          <Breadcrumbs.Link href="/">{brandName}</Breadcrumbs.Link>
+          <Breadcrumbs.Separator />
+          <Breadcrumbs.Current>Fee Dokter</Breadcrumbs.Current>
+        </Breadcrumbs>
+      </div>
+
+      <div className="flex items-start justify-between gap-4 py-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Fee Dokter</h1>
+          <p className="mt-1 text-sm text-gray-600">
+            Review rekap, detail transaksi, lock periode, dan export XLSX.
+          </p>
         </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Input
+            className="w-40"
+            aria-label="Periode fee dokter"
+            type="month"
+            value={period}
+            onChange={(event) => setPeriod(event.target.value)}
+          />
+          <Button
+            variant="secondary"
+            icon={<Calculator size={18} />}
+            loading={calculate.isPending}
+            disabled={overview?.status === "locked"}
+            onClick={() => calculate.mutate()}
+          >
+            Hitung Ulang
+          </Button>
+          <Button
+            variant="secondary"
+            icon={<Lock size={18} />}
+            loading={lock.isPending}
+            disabled={overview?.status === "locked" || overview?.review_count !== 0 || !overview?.summaries.length}
+            onClick={() => lock.mutate()}
+          >
+            Lock Periode
+          </Button>
+          <Button variant="secondary" icon={<FileSpreadsheet size={18} />} onClick={exportWorkbook}>
+            Export XLSX
+          </Button>
+          <Button variant="secondary" icon={<FileText size={18} />} onClick={exportPdf}>
+            Export PDF
+          </Button>
+          <Button
+            variant="secondary"
+            icon={<Database size={18} />}
+            loading={generateRandom.isPending}
+            disabled={overview?.status === "locked"}
+            onClick={() => generateRandom.mutate()}
+          >
+            Generate Data Tes
+          </Button>
+          <LinkButton variant="secondary" href={`/treatment-history?period=${period}`} icon={<ExternalLink size={18} />}>
+            Riwayat Perawatan
+          </LinkButton>
+        </div>
+      </div>
+
+      <Banner variant={banner.variant} description={banner.description} />
+
+      <LayerCard className="flex flex-col gap-4 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <Text as="h2" variant="heading3">Rekap Fee Dokter</Text>
+            <p className="mt-1 text-sm text-kumo-subtle">
+              {statusLabel[overview?.status ?? "empty"]} untuk periode {period}.
+            </p>
+          </div>
+          {statusBadge(overview?.status ?? "empty")}
+        </div>
+
+        <div className="grid gap-3">
+          <div className="rounded-md border border-kumo-hairline bg-kumo-base p-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <Text as="strong" variant="body" bold>Komposisi Nominal</Text>
+                <p className="mt-0.5 text-xs text-kumo-subtle">Perbandingan billing, fee, transfer, pajak, dan potongan.</p>
+              </div>
+              <Badge variant={overview?.review_count ? "error" : "success"}>
+                {overview?.review_count ?? 0} review
+              </Badge>
+            </div>
+            <Chart
+              echarts={echarts}
+              options={feeChartOptions}
+              height={188}
+              aria-label="Grafik komposisi nominal fee dokter"
+            />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ["Dokter", overview?.doctor_count ?? 0],
+              ["Transaksi", overview?.transaction_count ?? 0],
+              ["Fee Ortho/Behel", rupiah.format(overview?.ortho_fee_total ?? 0)],
+              ["Status", statusLabel[overview?.status ?? "empty"]],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-md border border-kumo-hairline bg-kumo-base px-3 py-2">
+                <div className="text-[11px] font-medium uppercase text-kumo-subtle">{label}</div>
+                <div className="mt-0.5 truncate text-sm font-semibold text-kumo-default">{value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-72 flex-1 items-center gap-2">
+            <Search size={16} className="text-kumo-subtle" />
+            <Input
+              aria-label="Cari rekap dokter"
+              className="flex-1"
+              placeholder="Cari dokter, bank, atau rekening..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          <Select
+            className="w-44"
+            aria-label="Filter status fee dokter"
+            value={statusFilter}
+            renderValue={(value) => (value === "locked" ? "Locked" : value === "draft" ? "Draft" : "Semua status")}
+            onValueChange={(value) => setStatusFilter(String(value))}
+          >
+            <Select.Option value="all">Semua status</Select.Option>
+            <Select.Option value="draft">Draft</Select.Option>
+            <Select.Option value="locked">Locked</Select.Option>
+          </Select>
+        </div>
+
         <DataTable
-          rows={summaries ?? []}
+          rows={filteredSummaries}
+          pagination
+          pageSize={25}
+          minTableWidth={1500}
+          rowKey={(row) => row.doctor_id}
+          selectable
+          selectedKeys={new Set(selectedDoctorId ? [selectedDoctorId] : [])}
+          onToggleRow={(row) => setSelectedDoctorId(row.doctor_id)}
+          onTogglePage={(rows) => rows[0] && setSelectedDoctorId(rows[0].doctor_id)}
           columns={[
-            { key: "doctor", header: "Dokter ID", render: (row) => row.doctor_id },
+            { key: "doctor", header: "Dokter", render: (row) => row.doctor_name },
+            { key: "count", header: "Transaksi", align: "right", render: (row) => row.transaction_count },
+            { key: "bill", header: "Total Bill Pasien", align: "right", render: (row) => rupiah.format(row.total_bill) },
             { key: "treatment", header: "Fee Perawatan", align: "right", render: (row) => rupiah.format(row.treatment_fee_total) },
-            { key: "total", header: "Total Fee", align: "right", render: (row) => rupiah.format(row.total_fee) },
-            { key: "bill", header: "Total Bill", align: "right", render: (row) => rupiah.format(row.total_bill) },
+            { key: "ortho", header: "Fee Ortho/Behel", align: "right", render: (row) => rupiah.format(row.ortho_fee_total) },
+            { key: "fee", header: "Total Fee", align: "right", render: (row) => rupiah.format(row.total_fee) },
+            { key: "deduction", header: "Potongan", align: "right", render: (row) => rupiah.format(row.deduction) },
             { key: "tax", header: "Pajak", align: "right", render: (row) => rupiah.format(row.tax) },
-            { key: "transfer", header: "Transfer", align: "right", render: (row) => rupiah.format(row.transfer_amount) },
-            { key: "status", header: "Status", render: (row) => <Badge variant="success" appearance="dot">{row.status}</Badge> },
+            { key: "transfer", header: "Nominal Transfer", align: "right", render: (row) => <strong>{rupiah.format(row.transfer_amount)}</strong> },
+            { key: "bank", header: "Bank", render: (row) => row.bank_name ?? "-" },
+            { key: "account", header: "No Rekening", render: (row) => row.account_number ?? "-" },
+            { key: "status", header: "Status", render: (row) => statusBadge(row.status) },
+            {
+              key: "actions",
+              header: "",
+              align: "right",
+              sticky: "right",
+              render: (row) => (
+                <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
+                  <DropdownMenu>
+                    <DropdownMenu.Trigger
+                      render={
+                        <Button variant="ghost" size="sm" shape="square" aria-label={`Aksi ${row.doctor_name}`}>
+                          <MoreHorizontal size={16} />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenu.Content>
+                      <DropdownMenu.Item icon={<Eye className="mr-2" size={16} />} onClick={() => setSelectedDoctorId(row.doctor_id)}>
+                        Lihat detail
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item icon={<ExternalLink className="mr-2" size={16} />} onClick={() => openTreatmentHistory(row.doctor_id)}>
+                        Buka transaksi
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu>
+                </div>
+              ),
+            },
           ]}
         />
       </LayerCard>
-      <LayerCard className="p-4">
-        <Text as="h2" variant="heading3" DANGEROUS_className="mb-4">Transaksi Tindakan</Text>
+
+      <LayerCard className="flex flex-col gap-4 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <Text as="h2" variant="heading3">Detail Transaksi Dokter</Text>
+            <p className="mt-1 text-sm text-kumo-subtle">
+              {selectedSummary ? selectedSummary.doctor_name : "Pilih dokter dari tabel rekap."}
+            </p>
+          </div>
+          {selectedSummary ? (
+            <Button variant="ghost" size="sm" icon={<ExternalLink size={16} />} onClick={() => openTreatmentHistory(selectedSummary.doctor_id)}>
+              Koreksi transaksi
+            </Button>
+          ) : null}
+        </div>
+
         <DataTable
           rows={transactions ?? []}
+          pagination
+          pageSize={25}
+          minTableWidth={1850}
+          rowKey={(row) => row.id}
           columns={[
             { key: "date", header: "Tanggal", render: (row) => row.transaction_date },
-            { key: "patient", header: "Pasien", render: (row) => row.patient_name },
+            { key: "patient", header: "Nama Pasien", render: (row) => row.patient_name },
             { key: "treatment", header: "Perawatan", render: (row) => row.treatment_name_snapshot },
+            { key: "bhp", header: "BHP", align: "right", render: (row) => rupiah.format(row.bhp_amount) },
+            { key: "price", header: "Biaya Perawatan", align: "right", render: (row) => rupiah.format(row.price_amount) },
             { key: "qty", header: "Qty", align: "right", render: (row) => row.qty },
+            { key: "discount", header: "Diskon", align: "right", render: (row) => rupiah.format(row.discount_amount) },
+            { key: "service", header: "Biaya Jasa", align: "right", render: (row) => rupiah.format(row.service_amount) },
             { key: "fee", header: "Fee Dokter", align: "right", render: (row) => rupiah.format(row.doctor_fee_amount) },
-            { key: "bill", header: "Bill", align: "right", render: (row) => rupiah.format(row.total_bill_amount) },
-            { key: "review", header: "Review", render: (row) => row.needs_review ? <Badge variant="error">review</Badge> : <Badge variant="success">ok</Badge> },
+            { key: "special", header: "Fee Khusus Behel", align: "right", render: (row) => rupiah.format(row.special_fee_amount) },
+            { key: "bill", header: "Total Biaya", align: "right", render: (row) => <strong>{rupiah.format(row.total_bill_amount)}</strong> },
+            {
+              key: "review",
+              header: "Status Review",
+              render: (row) => (row.needs_review ? <Badge variant="error">review</Badge> : <Badge variant="success">ok</Badge>),
+            },
           ]}
         />
       </LayerCard>

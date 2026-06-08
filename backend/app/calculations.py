@@ -56,7 +56,7 @@ def calculate_doctor_period(session: Session, period: str) -> list[DoctorPeriodS
     for doctor_id, rows in by_doctor.items():
         doctor = session.get(Doctor, doctor_id)
         tax_rate = doctor.tax_rate if doctor else default_rule.tax_rate
-        treatment_fee = sum(row.doctor_fee_amount for row in rows)
+        treatment_fee = sum(row.doctor_fee_amount for row in rows if not row.special_fee_amount)
         ortho_fee = sum(row.special_fee_amount for row in rows)
         total_bill = sum(row.total_bill_amount for row in rows)
         total_fee = treatment_fee + ortho_fee
