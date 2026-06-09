@@ -1,5 +1,4 @@
 import { Banner } from "@cloudflare/kumo/components/banner";
-import { Breadcrumbs } from "@cloudflare/kumo/components/breadcrumbs";
 import { Button, LinkButton } from "@cloudflare/kumo/components/button";
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { Text } from "@cloudflare/kumo/components/text";
@@ -371,17 +370,8 @@ export function MasterDataPage() {
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* Breadcrumb */}
-      <div className="border-b border-kumo-line">
-        <Breadcrumbs size="sm">
-          <Breadcrumbs.Link href="/">Dental Manager</Breadcrumbs.Link>
-          <Breadcrumbs.Separator />
-          <Breadcrumbs.Current>Master Data</Breadcrumbs.Current>
-        </Breadcrumbs>
-      </div>
-
       {/* Page header */}
-      <div className="flex items-start justify-between gap-4 py-3">
+      <div className="flex items-start justify-between gap-4 py-4">
         <div>
           <h1 className="text-2xl font-semibold">Master Data</h1>
           <p className="mt-1 text-sm text-gray-600">

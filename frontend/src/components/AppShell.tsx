@@ -1,6 +1,6 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
+import { Breadcrumbs } from "@cloudflare/kumo/components/breadcrumbs";
 import { Button } from "@cloudflare/kumo/components/button";
-import { InputGroup } from "@cloudflare/kumo/components/input-group";
 import { Sidebar, useSidebar } from "@cloudflare/kumo/components/sidebar";
 import { Text } from "@cloudflare/kumo/components/text";
 import {
@@ -12,7 +12,6 @@ import {
   LogOut,
   Moon,
   ReceiptText,
-  Search,
   Settings,
   Stethoscope,
   Sun,
@@ -84,6 +83,9 @@ function AppShellFrame({ user }: Props) {
   }, [user.full_name]);
   const sidebarOffset =
     state === "expanded" ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH;
+  const activeNav = nav.find((item) =>
+    item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to),
+  );
 
   return (
     <>
@@ -178,12 +180,11 @@ function AppShellFrame({ user }: Props) {
         >
           <Sidebar.Trigger aria-label="Toggle sidebar" />
 
-          <InputGroup className="min-w-0 flex-1" style={{ maxWidth: 540 }}>
-            <InputGroup.Addon>
-              <Search size={16} />
-            </InputGroup.Addon>
-            <InputGroup.Input aria-label="Search" placeholder="Search..." />
-          </InputGroup>
+          <Breadcrumbs size="sm" className="min-w-0 flex-1">
+            <Breadcrumbs.Link href="/">{brandName}</Breadcrumbs.Link>
+            <Breadcrumbs.Separator />
+            <Breadcrumbs.Current>{activeNav?.label ?? "Halaman"}</Breadcrumbs.Current>
+          </Breadcrumbs>
 
           <div className="ml-auto flex items-center gap-2">
             <Button
@@ -233,7 +234,7 @@ function AppShellFrame({ user }: Props) {
           </div>
         </header>
         <div
-          className="mx-auto flex w-full flex-col gap-5 px-6 py-6"
+          className="mx-auto flex w-full flex-col gap-5 px-6 pt-8 pb-6"
           style={{ maxWidth: 1280 }}
         >
           <Outlet />

@@ -1,5 +1,4 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
-import { Breadcrumbs } from "@cloudflare/kumo/components/breadcrumbs";
 import { Button, LinkButton } from "@cloudflare/kumo/components/button";
 import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
 import { Input } from "@cloudflare/kumo/components/input";
@@ -30,7 +29,6 @@ import {
   valuesFromTransaction,
 } from "../components/treatment-history/utils";
 import { api, rupiah } from "../lib/api";
-import { brandName } from "../lib/brand";
 
 export function TreatmentHistoryPage() {
   const queryClient = useQueryClient();
@@ -254,15 +252,7 @@ export function TreatmentHistoryPage() {
 
   return (
     <>
-      <div className="border-b border-kumo-line">
-        <Breadcrumbs size="sm">
-          <Breadcrumbs.Link href="/">{brandName}</Breadcrumbs.Link>
-          <Breadcrumbs.Separator />
-          <Breadcrumbs.Current>Riwayat Perawatan</Breadcrumbs.Current>
-        </Breadcrumbs>
-      </div>
-
-      <div className="flex items-start justify-between gap-4 py-3">
+      <div className="flex items-start justify-between gap-4 py-4">
         <div>
           <h1 className="text-2xl font-semibold">Riwayat Perawatan</h1>
           <p className="mt-1 text-sm text-gray-600">

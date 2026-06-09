@@ -1,6 +1,5 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Banner } from "@cloudflare/kumo/components/banner";
-import { Breadcrumbs } from "@cloudflare/kumo/components/breadcrumbs";
 import { Button } from "@cloudflare/kumo/components/button";
 import { Input } from "@cloudflare/kumo/components/input";
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
@@ -12,7 +11,6 @@ import { useMemo, useState } from "react";
 
 import { DataTable } from "../components/DataTable";
 import { api, downloadFile } from "../lib/api";
-import { brandName } from "../lib/brand";
 
 type ReportArchive = {
   id: number;
@@ -104,15 +102,7 @@ export function ReportsPage() {
 
   return (
     <>
-      <div className="border-b border-kumo-line">
-        <Breadcrumbs size="sm">
-          <Breadcrumbs.Link href="/">{brandName}</Breadcrumbs.Link>
-          <Breadcrumbs.Separator />
-          <Breadcrumbs.Current>Laporan</Breadcrumbs.Current>
-        </Breadcrumbs>
-      </div>
-
-      <div className="flex items-start justify-between gap-4 py-3">
+      <div className="flex items-start justify-between gap-4 py-4">
         <div>
           <h1 className="text-2xl font-semibold">Laporan</h1>
           <p className="mt-1 text-sm text-gray-600">
