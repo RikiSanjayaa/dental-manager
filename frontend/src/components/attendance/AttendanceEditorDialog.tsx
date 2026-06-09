@@ -7,6 +7,7 @@ import { Input } from "@cloudflare/kumo/components/input";
 import { Select } from "@cloudflare/kumo/components/select";
 import { Switch } from "@cloudflare/kumo/components/switch";
 
+import { DatePickerPopover } from "../DatePickerPopover";
 import type { EditorSession, Employee } from "./types";
 
 type Props = {
@@ -104,7 +105,7 @@ export function AttendanceEditorDialog({
                 <Input type="month" required value={values.period} onChange={(event) => onFieldChange("period", event.target.value)} />
               </Field>
               <Field label="Tanggal" labelTooltip="Tanggal kerja pada baris absensi.">
-                <Input type="date" required value={values.work_date} onChange={(event) => onFieldChange("work_date", event.target.value)} />
+                <DatePickerPopover value={values.work_date} onChange={(value) => onFieldChange("work_date", value)} />
               </Field>
               <Field label="Karyawan" labelTooltip="Karyawan dari Master Data. ID Absensi dan nama snapshot akan diisi otomatis dari pilihan ini.">
                 <Select

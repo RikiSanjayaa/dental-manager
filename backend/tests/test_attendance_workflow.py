@@ -1,4 +1,5 @@
 from io import BytesIO
+from datetime import date
 
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
@@ -6,7 +7,7 @@ from sqlmodel import Session, select
 
 from app.database import engine, refresh_database
 from app.main import app
-from app.models import Employee, PayrollRecord, PeriodStatus
+from app.models import AttendanceHoliday, Employee, PayrollRecord, PeriodStatus
 from app.reports import template_xlsx
 from app.security import create_access_token
 
@@ -165,3 +166,48 @@ def test_attendance_template_notes_include_employee_attendance_ids():
     assert ("attendance_id", "name", "status") in values
     assert ("1", "RIKA", "aktif") in values
     assert (str(fallback_employee.id), "TANPA ID", "aktif") in values
+
+
+def test_attendance_import_uses_global_holiday_calendar_when_libur_blank():
+    seed_employee()
+    client = TestClient(app)
+    headers = auth_headers()
+
+    with Session(engine) as session:
+        session.add(AttendanceHoliday(holiday_date=date(2026, 5, 27), name="Tanggal merah", is_holiday=True))
+        session.commit()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Attendance"
+    ws["A3"] = "ID"
+    ws["B3"] = "Nama"
+    ws["C3"] = "Tgl"
+    ws["D3"] = "Timezone I"
+    ws["E3"] = "Timezone I"
+    ws["L3"] = "Libur"
+    ws["D4"] = "Masuk"
+    ws["E4"] = "Keluar"
+    ws.append([1, "RI", "2026-05-27", "08:00", "12:00", None, None, None, None, None, None, ""])
+    stream = BytesIO()
+    wb.save(stream)
+    stream.seek(0)
+
+    preview = client.post(
+        "/attendance/import-preview",
+        headers=headers,
+        files={"file": ("attendance.xlsx", stream.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["rows"][0]["is_holiday"] is True
+    assert preview.json()["rows"][0]["overtime_minutes"] == 240
+
+    stream.seek(0)
+    commit = client.post(
+        "/attendance/import",
+        headers=headers,
+        files={"file": ("attendance.xlsx", stream.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert commit.status_code == 200
+    rows = client.get("/attendance-records?period=2026-05", headers=headers)
+    assert rows.json()[0]["is_holiday"] is True

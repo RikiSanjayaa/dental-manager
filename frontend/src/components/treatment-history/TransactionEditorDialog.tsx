@@ -7,6 +7,7 @@ import { Grid, GridItem } from "@cloudflare/kumo/components/grid";
 import { Input } from "@cloudflare/kumo/components/input";
 import { Switch } from "@cloudflare/kumo/components/switch";
 
+import { DatePickerPopover } from "../DatePickerPopover";
 import { rupiah } from "../../lib/api";
 import type { Doctor, EditorSession, Treatment } from "./types";
 
@@ -144,12 +145,7 @@ export function TransactionEditorDialog({
                 label="Tanggal"
                 labelTooltip="Tanggal tindakan pasien dilakukan. Jika periode kosong saat import, periode diambil dari tanggal ini."
               >
-                <Input
-                  type="date"
-                  required
-                  value={values.transaction_date}
-                  onChange={(event) => onFieldChange("transaction_date", event.target.value)}
-                />
+                <DatePickerPopover value={values.transaction_date} onChange={(value) => onFieldChange("transaction_date", value)} />
               </Field>
               {needsReview ? (
                 <GridItem className="md:col-span-2" style={{ gridColumn: "1 / -1" }}>

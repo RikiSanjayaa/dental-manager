@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from app.calculations import calculate_attendance_record, calculate_doctor_transaction
 from app.models import (
+    AttendanceHoliday,
     AttendanceRule,
     AttendanceRecord,
     Doctor,
@@ -134,13 +135,13 @@ def falsey_cell(value: Any) -> bool:
     return text in {"0", "false", "no", "tidak", "n", "masuk", "kerja", "bukan_libur", "hari_kerja"}
 
 
-def holiday_from_cell(value: Any, work_date) -> bool:
+def holiday_from_cell(value: Any) -> bool | None:
     if value not in (None, ""):
         if truthy_cell(value):
             return True
         if falsey_cell(value):
             return False
-    return work_date.weekday() == 6
+    return None
 
 
 def get_by_header(formula_ws, values_ws, headers: dict[str, int], row: int, key: str, errors: list[dict[str, Any]], *, required: bool = False) -> Any:
@@ -300,9 +301,8 @@ def preview_attendance(path: str | Path) -> dict[str, Any]:
         timezone1_out = first_by_header(ws, values_ws, headers, row, ["timezone_i_keluar", "timezone_1_keluar", "timezone1_out"], errors)
         timezone2_in = first_by_header(ws, values_ws, headers, row, ["timezone_ii_masuk", "timezone_2_masuk", "timezone2_in"], errors)
         timezone2_out = first_by_header(ws, values_ws, headers, row, ["timezone_ii_keluar", "timezone_2_keluar", "timezone2_out"], errors)
-        is_holiday = holiday_from_cell(
-            first_by_header(ws, values_ws, headers, row, ["libur", "hari_libur", "tanggal_merah", "holiday"], errors),
-            work_date,
+        holiday_override = holiday_from_cell(
+            first_by_header(ws, values_ws, headers, row, ["libur", "hari_libur", "tanggal_merah", "holiday"], errors)
         )
         note = first_by_header(ws, values_ws, headers, row, ["catatan", "status_note", "note"], errors)
         rows.append(
@@ -316,7 +316,8 @@ def preview_attendance(path: str | Path) -> dict[str, Any]:
                 "timezone1_out": str(timezone1_out or "") or None,
                 "timezone2_in": str(timezone2_in or "") or None,
                 "timezone2_out": str(timezone2_out or "") or None,
-                "is_holiday": is_holiday,
+                "holiday_override": holiday_override,
+                "is_holiday": bool(holiday_override),
                 "status_note": str(note or "").strip() or None,
                 "employee_found": True,
                 "duplicate": duplicate,
@@ -450,6 +451,10 @@ def commit_attendance(session: Session, attendance_rows: list[dict[str, Any]]) -
     }
     rule = session.exec(select(AttendanceRule).where(AttendanceRule.is_default == True)).first()  # noqa: E712
     rule = rule or AttendanceRule(name="Fallback", is_default=True)
+    holidays = {
+        holiday.holiday_date: holiday.is_holiday
+        for holiday in session.exec(select(AttendanceHoliday)).all()
+    }
     for item in attendance_rows:
         work_date = parse_date(item["work_date"])
         if not work_date:
@@ -479,7 +484,12 @@ def commit_attendance(session: Session, attendance_rows: list[dict[str, Any]]) -
         record.timezone1_out = parse_time(item["timezone1_out"])
         record.timezone2_in = parse_time(item["timezone2_in"])
         record.timezone2_out = parse_time(item["timezone2_out"])
-        record.is_holiday = bool(item.get("is_holiday"))
+        holiday_override = item.get("holiday_override")
+        record.is_holiday = bool(
+            holiday_override
+            if holiday_override is not None
+            else holidays.get(work_date, work_date.weekday() == 6)
+        )
         record.needs_review = employee is None
         record.status_note = item["status_note"] or (None if employee else "Karyawan belum ditemukan di master.")
         calculate_attendance_record(record, rule)

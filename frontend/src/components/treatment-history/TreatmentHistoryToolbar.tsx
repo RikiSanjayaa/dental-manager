@@ -3,6 +3,7 @@ import { Input } from "@cloudflare/kumo/components/input";
 import { Select } from "@cloudflare/kumo/components/select";
 import { Search, X } from "lucide-react";
 
+import { DatePickerPopover } from "../DatePickerPopover";
 import type { Doctor } from "./types";
 
 type Props = {
@@ -75,13 +76,13 @@ export function TreatmentHistoryToolbar({
           <Select.Option value="review">Perlu review</Select.Option>
           <Select.Option value="ok">OK</Select.Option>
         </Select>
-        <Input
-          className="w-40"
-          aria-label="Filter tanggal transaksi"
-          type="date"
-          value={dateFilter}
-          onChange={(event) => onDateFilterChange(event.target.value)}
-        />
+        <div className="w-40">
+          <DatePickerPopover
+            value={dateFilter}
+            onChange={onDateFilterChange}
+            placeholder="Filter tanggal"
+          />
+        </div>
         <Button
           variant="ghost"
           shape="square"

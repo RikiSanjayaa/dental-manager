@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Any, TypeVar
 
 from pathlib import Path
@@ -13,7 +13,7 @@ from sqlmodel import SQLModel, select
 from app.dependencies import AdminUser, CurrentUser, SessionDep
 from app.config import get_settings
 from app.importers import commit_doctors, commit_employees, commit_treatments, preview_doctors, preview_employees, preview_treatments
-from app.models import AttendanceRule, Doctor, DoctorFeeRule, Employee, ImportFile, ImportKind, ImportStatus, PayrollRule, Treatment, User, UserRole
+from app.models import AttendanceHoliday, AttendanceRule, Doctor, DoctorFeeRule, Employee, ImportFile, ImportKind, ImportStatus, PayrollRule, Treatment, User, UserRole
 from app.security import hash_password
 from app.utils import normalize_text
 
@@ -109,6 +109,12 @@ class AttendanceRuleInput(BaseModel):
     timezone1_end: time = time(16, 0)
     timezone2_start: time = time(14, 0)
     timezone2_end: time = time(21, 0)
+
+
+class AttendanceHolidayInput(BaseModel):
+    holiday_date: date
+    name: str | None = None
+    is_holiday: bool = True
 
 
 def _list(session: SessionDep, model: type[ModelT], search: str | None = None) -> list[ModelT]:
@@ -591,6 +597,44 @@ def update_attendance_rule(item_id: int, payload: AttendanceRuleInput, session: 
     session.commit()
     session.refresh(item)
     return item
+
+
+@router.get("/settings/attendance-holidays", response_model=list[AttendanceHoliday])
+def list_attendance_holidays(
+    session: SessionDep,
+    _: CurrentUser,
+    start: date | None = None,
+    end: date | None = None,
+) -> list[AttendanceHoliday]:
+    statement = select(AttendanceHoliday)
+    if start:
+        statement = statement.where(AttendanceHoliday.holiday_date >= start)
+    if end:
+        statement = statement.where(AttendanceHoliday.holiday_date <= end)
+    return session.exec(statement.order_by(AttendanceHoliday.holiday_date)).all()
+
+
+@router.post("/settings/attendance-holidays", response_model=AttendanceHoliday)
+def upsert_attendance_holiday(payload: AttendanceHolidayInput, session: SessionDep, _: AdminUser) -> AttendanceHoliday:
+    item = session.exec(
+        select(AttendanceHoliday).where(AttendanceHoliday.holiday_date == payload.holiday_date)
+    ).first()
+    if not item:
+        item = AttendanceHoliday(holiday_date=payload.holiday_date)
+    item.name = payload.name
+    item.is_holiday = payload.is_holiday
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+@router.delete("/settings/attendance-holidays/{item_id}")
+def delete_attendance_holiday(item_id: int, session: SessionDep, _: AdminUser) -> dict[str, str]:
+    item = _get_or_404(session, AttendanceHoliday, item_id)
+    session.delete(item)
+    session.commit()
+    return {"status": "ok"}
 
 
 @router.get("/settings/doctor-fee-rules", response_model=list[DoctorFeeRule])

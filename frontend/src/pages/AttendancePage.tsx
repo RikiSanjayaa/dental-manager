@@ -10,13 +10,14 @@ import { Text } from "@cloudflare/kumo/components/text";
 import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, FileDown, FileUp, MoreHorizontal, Pencil, Plus, Search, Trash2, XCircle } from "lucide-react";
-import { ChangeEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { AttendanceEditorDialog } from "../components/attendance/AttendanceEditorDialog";
 import { AttendanceImportPreviewDialog } from "../components/attendance/AttendanceImportPreviewDialog";
 import type { AttendancePreview, AttendanceRecord, EditorSession, Employee, ImportSession } from "../components/attendance/types";
 import { attendancePayload, emptyAttendanceValues, includesText, valuesFromAttendance } from "../components/attendance/utils";
 import { DataTable } from "../components/DataTable";
+import { DatePickerPopover } from "../components/DatePickerPopover";
 import { api } from "../lib/api";
 import { brandName } from "../lib/brand";
 
@@ -79,6 +80,8 @@ function isSunday(value: string) {
   return Boolean(value) && new Date(`${value}T00:00:00`).getDay() === 0;
 }
 
+type AttendanceHoliday = { id: number; holiday_date: string; name?: string | null; is_holiday: boolean };
+
 export function AttendancePage() {
   const queryClient = useQueryClient();
   const toasts = useKumoToastManager();
@@ -105,8 +108,31 @@ export function AttendancePage() {
     queryKey: ["employees"],
     queryFn: () => api<Employee[]>("/employees"),
   });
+  const { data: attendanceHolidays } = useQuery({
+    queryKey: ["attendance-holidays"],
+    queryFn: () => api<AttendanceHoliday[]>("/settings/attendance-holidays"),
+  });
 
   const activeEmployees = useMemo(() => (employees ?? []).filter((employee) => employee.is_active), [employees]);
+  const holidayByDate = useMemo(
+    () => new Map((attendanceHolidays ?? []).map((item) => [item.holiday_date, item.is_holiday])),
+    [attendanceHolidays],
+  );
+
+  function isHolidayDate(value: string) {
+    return holidayByDate.get(value) ?? isSunday(value);
+  }
+
+  useEffect(() => {
+    if (!editor.open || !editor.values.work_date) return;
+    setEditor((current) => ({
+      ...current,
+      values: {
+        ...current.values,
+        is_holiday: isHolidayDate(current.values.work_date) ? "true" : "false",
+      },
+    }));
+  }, [attendanceHolidays, editor.open]);
 
   const filteredRecords = useMemo(() => {
     return (records ?? []).filter((row) => {
@@ -216,7 +242,7 @@ export function AttendancePage() {
 
   function openCreate() {
     const values = emptyAttendanceValues(period);
-    if (isSunday(values.work_date)) values.is_holiday = "true";
+    values.is_holiday = isHolidayDate(values.work_date) ? "true" : "false";
     setEditor({ open: true, mode: "create", values });
   }
 
@@ -357,7 +383,13 @@ export function AttendancePage() {
               <Select.Option value="holiday">Libur</Select.Option>
               <Select.Option value="overtime">Lembur</Select.Option>
             </Select>
-            <Input className="w-40" aria-label="Filter tanggal" type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} />
+            <div className="w-40">
+              <DatePickerPopover
+                value={dateFilter}
+                onChange={setDateFilter}
+                placeholder="Filter tanggal"
+              />
+            </div>
             {selectedIds.size ? (
               <Button
                 variant="secondary-destructive"
@@ -446,7 +478,7 @@ export function AttendancePage() {
         onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}
         onFieldChange={(field, value) => setEditor((current) => {
           const values = { ...current.values, [field]: value };
-          if (field === "work_date" && isSunday(value)) values.is_holiday = "true";
+          if (field === "work_date") values.is_holiday = isHolidayDate(value) ? "true" : "false";
           return { ...current, values };
         })}
         onSubmit={() => saveAttendance.mutate(editor)}

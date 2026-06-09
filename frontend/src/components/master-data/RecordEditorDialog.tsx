@@ -6,6 +6,7 @@ import { Grid, GridItem } from "@cloudflare/kumo/components/grid";
 import { Input } from "@cloudflare/kumo/components/input";
 import { Select } from "@cloudflare/kumo/components/select";
 
+import { DatePickerPopover } from "../DatePickerPopover";
 import { MASTER_META } from "./constants";
 import type { EditorSession } from "./types";
 
@@ -307,13 +308,7 @@ export function RecordEditorDialog({
                     />
                   </Field>
                   <Field label="Tanggal Masuk" required={false}>
-                    <Input
-                      type="date"
-                      value={v.join_date ?? ""}
-                      onChange={(event) =>
-                        onFieldChange("join_date", event.target.value)
-                      }
-                    />
+                    <DatePickerPopover value={v.join_date ?? ""} onChange={(value) => onFieldChange("join_date", value)} />
                   </Field>
                   <Field
                     label="Gaji Pokok"

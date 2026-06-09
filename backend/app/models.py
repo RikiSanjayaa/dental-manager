@@ -109,6 +109,14 @@ class AttendanceRule(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class AttendanceHoliday(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    holiday_date: date = Field(index=True)
+    name: Optional[str] = None
+    is_holiday: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class DoctorFeeRule(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)

@@ -11,7 +11,7 @@ from app.calculations import calculate_attendance_record, calculate_payroll_peri
 from app.config import get_settings
 from app.dependencies import CurrentUser, SessionDep
 from app.importers import commit_attendance, preview_attendance
-from app.models import AttendanceRecord, AttendanceRule, Employee, PayrollRecord, PeriodStatus
+from app.models import AttendanceHoliday, AttendanceRecord, AttendanceRule, Employee, PayrollRecord, PeriodStatus
 from app.utils import normalize_text, parse_period, parse_time
 
 router = APIRouter(tags=["payroll"])
@@ -69,6 +69,10 @@ def enrich_attendance_preview(session: SessionDep, preview: dict) -> dict:
     review_count = 0
     upsert_count = 0
     rule = default_attendance_rule(session)
+    holidays = {
+        holiday.holiday_date: holiday.is_holiday
+        for holiday in session.exec(select(AttendanceHoliday)).all()
+    }
     for item in preview["data"]["attendance"]:
         employee = by_attendance_id.get(str(item.get("attendance_id") or "").strip()) or by_name.get(normalize_text(item.get("employee_name")))
         issues = []
@@ -92,6 +96,12 @@ def enrich_attendance_preview(session: SessionDep, preview: dict) -> dict:
                     AttendanceRecord.work_date == work_date,
                 )
             ).first()
+        holiday_override = item.get("holiday_override")
+        resolved_holiday = bool(
+            holiday_override
+            if holiday_override is not None
+            else holidays.get(work_date, work_date.weekday() == 6)
+        )
         sample = AttendanceRecord(
             period=item["period"],
             employee_id=employee.id if employee else None,
@@ -102,7 +112,7 @@ def enrich_attendance_preview(session: SessionDep, preview: dict) -> dict:
             timezone1_out=parse_time(item.get("timezone1_out")),
             timezone2_in=parse_time(item.get("timezone2_in")),
             timezone2_out=parse_time(item.get("timezone2_out")),
-            is_holiday=bool(item.get("is_holiday")),
+            is_holiday=resolved_holiday,
             needs_review=employee is None,
         )
         calculate_attendance_record(sample, rule)
@@ -172,6 +182,10 @@ def list_attendance(
 ) -> list[AttendanceRecord]:
     rows = session.exec(select(AttendanceRecord)).all()
     rule = default_attendance_rule(session)
+    holidays = {
+        holiday.holiday_date: holiday.is_holiday
+        for holiday in session.exec(select(AttendanceHoliday)).all()
+    }
     changed = False
     for row in rows:
         before = (
@@ -185,6 +199,8 @@ def list_attendance(
             row.is_holiday,
             row.is_double_shift,
         )
+        if row.work_date in holidays:
+            row.is_holiday = holidays[row.work_date]
         calculate_attendance_record(row, rule)
         after = (
             row.late_minutes,

@@ -1,4 +1,5 @@
 import "@cloudflare/kumo/styles/standalone";
+import "@cloudflare/kumo/styles";
 import "./styles/app.css";
 
 import { Toasty } from "@cloudflare/kumo/components/toast";
