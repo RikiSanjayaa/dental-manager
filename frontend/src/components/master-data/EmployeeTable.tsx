@@ -92,7 +92,16 @@ export function EmployeeTable({
           key: "salary",
           header: "Gaji Pokok",
           align: "right",
-          render: (row) => rupiah.format(row.base_salary),
+          render: (row) => row.base_salary ? rupiah.format(row.base_salary) : "Ikut default",
+        },
+        {
+          key: "training",
+          header: "Training",
+          render: (row) => (
+            <Badge variant={row.is_training ? "info" : "secondary"}>
+              {row.is_training ? "masa training" : "reguler"}
+            </Badge>
+          ),
         },
         {
           key: "days",

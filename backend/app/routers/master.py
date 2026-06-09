@@ -51,6 +51,7 @@ class EmployeeInput(BaseModel):
     join_date: str | None = None
     base_salary: float = 0
     working_days: int = 25
+    is_training: bool = False
     bank_name: str | None = None
     account_name: str | None = None
     account_number: str | None = None
@@ -85,6 +86,7 @@ class TreatmentInput(BaseModel):
 class PayrollRuleInput(BaseModel):
     name: str
     is_default: bool = False
+    default_base_salary: float = 0
     bpjs_jht_rate: float = 0.02
     overtime_rate_per_minute: float = 250
     pph21_threshold: float = 5_400_000
@@ -579,6 +581,21 @@ def create_payroll_rule(payload: PayrollRuleInput, session: SessionDep, _: Admin
     return item
 
 
+@router.patch("/settings/payroll-rules/{item_id}", response_model=PayrollRule)
+def update_payroll_rule(item_id: int, payload: PayrollRuleInput, session: SessionDep, _: AdminUser) -> PayrollRule:
+    item = _get_or_404(session, PayrollRule, item_id)
+    if payload.is_default:
+        for rule in session.exec(select(PayrollRule)).all():
+            rule.is_default = False
+            session.add(rule)
+    for field, value in payload.model_dump().items():
+        setattr(item, field, value)
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
 @router.get("/settings/attendance-rules", response_model=list[AttendanceRule])
 def list_attendance_rules(session: SessionDep, _: AdminUser) -> list[AttendanceRule]:
     return session.exec(select(AttendanceRule)).all()
@@ -649,6 +666,21 @@ def create_doctor_fee_rule(payload: DoctorFeeRuleInput, session: SessionDep, _: 
             rule.is_default = False
             session.add(rule)
     item = DoctorFeeRule(**payload.model_dump())
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+@router.patch("/settings/doctor-fee-rules/{item_id}", response_model=DoctorFeeRule)
+def update_doctor_fee_rule(item_id: int, payload: DoctorFeeRuleInput, session: SessionDep, _: AdminUser) -> DoctorFeeRule:
+    item = _get_or_404(session, DoctorFeeRule, item_id)
+    if payload.is_default:
+        for rule in session.exec(select(DoctorFeeRule)).all():
+            rule.is_default = False
+            session.add(rule)
+    for field, value in payload.model_dump().items():
+        setattr(item, field, value)
     session.add(item)
     session.commit()
     session.refresh(item)

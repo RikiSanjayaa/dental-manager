@@ -41,7 +41,14 @@ def ensure_sqlite_columns() -> None:
             if "attendance_id" not in employee_columns:
                 connection.execute(text("ALTER TABLE employee ADD COLUMN attendance_id VARCHAR"))
                 connection.execute(text("CREATE INDEX IF NOT EXISTS ix_employee_attendance_id ON employee (attendance_id)"))
+            if "is_training" not in employee_columns:
+                connection.execute(text("ALTER TABLE employee ADD COLUMN is_training BOOLEAN DEFAULT 0"))
             connection.execute(text("UPDATE employee SET attendance_id = CAST(id AS TEXT) WHERE attendance_id IS NULL OR attendance_id = ''"))
+    if "payrollrule" in table_names:
+        payroll_rule_columns = {column["name"] for column in inspector.get_columns("payrollrule")}
+        with engine.begin() as connection:
+            if "default_base_salary" not in payroll_rule_columns:
+                connection.execute(text("ALTER TABLE payrollrule ADD COLUMN default_base_salary FLOAT DEFAULT 0"))
     if "attendancerecord" in table_names:
         attendance_columns = {column["name"] for column in inspector.get_columns("attendancerecord")}
         with engine.begin() as connection:

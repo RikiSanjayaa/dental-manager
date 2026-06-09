@@ -29,8 +29,7 @@ def test_payroll_calculation_uses_default_rules_and_attendance():
     rule = PayrollRule(name="Default", overtime_rate_per_minute=250, bpjs_jht_rate=0.02, pph21_threshold=5_400_000)
     record = PayrollRecord(period="2026-05", employee_id=1)
     attendance = [
-        AttendanceRecord(period="2026-05", employee_name_snapshot="Nama Karyawan 1", work_date=date(2026, 5, 3), is_sunday=True),
-        AttendanceRecord(period="2026-05", employee_name_snapshot="Nama Karyawan 1", work_date=date(2026, 5, 5), overtime_minutes=104),
+        AttendanceRecord(period="2026-05", employee_name_snapshot="Nama Karyawan 1", work_date=date(2026, 5, 3), is_holiday=True, overtime_minutes=104),
     ]
 
     calculate_payroll_record(record, employee, rule, attendance)

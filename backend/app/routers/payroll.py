@@ -7,11 +7,11 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlmodel import select
 
-from app.calculations import calculate_attendance_record, calculate_payroll_period
+from app.calculations import calculate_attendance_record, calculate_payroll_period, calculate_payroll_record, effective_base_salary
 from app.config import get_settings
 from app.dependencies import CurrentUser, SessionDep
 from app.importers import commit_attendance, preview_attendance
-from app.models import AttendanceHoliday, AttendanceRecord, AttendanceRule, Employee, PayrollRecord, PeriodStatus
+from app.models import AttendanceHoliday, AttendanceRecord, AttendanceRule, Employee, PayrollRecord, PayrollRule, PeriodStatus
 from app.utils import normalize_text, parse_period, parse_time
 
 router = APIRouter(tags=["payroll"])
@@ -39,9 +39,153 @@ class AttendanceInput(BaseModel):
     needs_review: bool = False
 
 
+class PayrollAdjustmentInput(BaseModel):
+    bonus: float = 0
+    position_allowance: float = 0
+    other_deduction: float = 0
+    izin_count: float = 0
+    sakit_count: float = 0
+    cuti_count: float = 0
+    alpha_count: float = 0
+    payment_method: str | None = None
+    bank_name: str | None = None
+    account_name: str | None = None
+    account_number: str | None = None
+    needs_review: bool = False
+
+
 def default_attendance_rule(session: SessionDep) -> AttendanceRule:
     rule = session.exec(select(AttendanceRule).where(AttendanceRule.is_default == True)).first()  # noqa: E712
     return rule or AttendanceRule(name="Fallback", is_default=True)
+
+
+def default_payroll_rule(session: SessionDep) -> PayrollRule:
+    rule = session.exec(select(PayrollRule).where(PayrollRule.is_default == True)).first()  # noqa: E712
+    return rule or PayrollRule(name="Fallback", is_default=True)
+
+
+def payroll_status(rows: list[PayrollRecord], attendance_count: int) -> str:
+    if not rows and not attendance_count:
+        return "empty"
+    if not rows:
+        return "not_calculated"
+    if all(row.status == PeriodStatus.LOCKED for row in rows):
+        return "locked"
+    return "draft"
+
+
+def payroll_gross(row: PayrollRecord) -> float:
+    return row.base_salary + row.double_shift_fee + row.sunday_fee + row.overtime_total + row.bonus + row.position_allowance
+
+
+def payroll_deduction(row: PayrollRecord) -> float:
+    return row.bpjs_deduction + row.other_deduction + row.pph21
+
+
+def payroll_overview_payload(session: SessionDep, period: str) -> dict:
+    rows = session.exec(select(PayrollRecord).where(PayrollRecord.period == period)).all()
+    attendance_rows = session.exec(select(AttendanceRecord).where(AttendanceRecord.period == period)).all()
+    attendance_review_count = sum(1 for row in attendance_rows if row.needs_review)
+    active_employees = session.exec(select(Employee).where(Employee.is_active == True)).all()  # noqa: E712
+    rows_by_employee = {row.employee_id: row for row in rows}
+    payroll_rule = default_payroll_rule(session)
+    summaries = []
+    for employee in sorted(active_employees, key=lambda item: item.name.casefold()):
+        row = rows_by_employee.get(employee.id or 0)
+        if not row:
+            summaries.append(
+                {
+                    "id": None,
+                    "employee_id": employee.id,
+                    "employee_name": employee.name,
+                    "position": employee.position,
+                    "join_date": employee.join_date.isoformat() if employee.join_date else None,
+                    "base_salary": effective_base_salary(employee, payroll_rule),
+                    "working_days": employee.working_days,
+                    "is_training": employee.is_training,
+                    "double_shift_count": 0,
+                    "sunday_count": 0,
+                    "izin_count": 0,
+                    "sakit_count": 0,
+                    "cuti_count": 0,
+                    "alpha_count": 0,
+                    "double_shift_fee": 0,
+                    "sunday_fee": 0,
+                    "overtime_minutes": 0,
+                    "overtime_rate_per_minute": payroll_rule.overtime_rate_per_minute,
+                    "overtime_total": 0,
+                    "bonus": 0,
+                    "position_allowance": 0,
+                    "gross_salary": effective_base_salary(employee, payroll_rule),
+                    "bpjs_deduction": 0,
+                    "other_deduction": 0,
+                    "pph21": 0,
+                    "total_deduction": 0,
+                    "net_salary": 0,
+                    "payment_method": "Transfer",
+                    "bank_name": employee.bank_name,
+                    "account_name": employee.account_name or employee.name,
+                    "account_number": employee.account_number,
+                    "needs_review": False,
+                    "status": "not_calculated",
+                    "calculated_at": None,
+                }
+            )
+            continue
+        summaries.append(
+            {
+                "id": row.id,
+                "employee_id": row.employee_id,
+                "employee_name": employee.name,
+                "position": employee.position,
+                "join_date": employee.join_date.isoformat() if employee.join_date else None,
+                "is_training": employee.is_training,
+                "base_salary": row.base_salary,
+                "working_days": row.working_days,
+                "double_shift_count": row.double_shift_count,
+                "sunday_count": row.sunday_count,
+                "izin_count": row.izin_count,
+                "sakit_count": row.sakit_count,
+                "cuti_count": row.cuti_count,
+                "alpha_count": row.alpha_count,
+                "double_shift_fee": row.double_shift_fee,
+                "sunday_fee": row.sunday_fee,
+                "overtime_minutes": row.overtime_minutes,
+                "overtime_rate_per_minute": row.overtime_rate_per_minute,
+                "overtime_total": row.overtime_total,
+                "bonus": row.bonus,
+                "position_allowance": row.position_allowance,
+                "gross_salary": payroll_gross(row),
+                "bpjs_deduction": row.bpjs_deduction,
+                "other_deduction": row.other_deduction,
+                "pph21": row.pph21,
+                "total_deduction": payroll_deduction(row),
+                "net_salary": row.net_salary,
+                "payment_method": row.payment_method,
+                "bank_name": row.bank_name,
+                "account_name": row.account_name,
+                "account_number": row.account_number,
+                "needs_review": row.needs_review,
+                "status": row.status,
+                "calculated_at": row.calculated_at,
+            }
+        )
+    return {
+        "period": period,
+        "status": payroll_status(rows, len(attendance_rows)),
+        "employee_count": len(summaries),
+        "attendance_count": len(attendance_rows),
+        "attendance_review_count": attendance_review_count,
+        "payroll_review_count": sum(1 for row in rows if row.needs_review),
+        "overtime_record_count": sum(1 for row in attendance_rows if row.overtime_minutes > 0),
+        "total_base_salary": sum(row.base_salary for row in rows),
+        "total_gross_salary": sum(payroll_gross(row) for row in rows),
+        "total_overtime_minutes": sum(row.overtime_minutes for row in rows),
+        "total_overtime": sum(row.overtime_total for row in rows),
+        "total_deduction": sum(payroll_deduction(row) for row in rows),
+        "total_net_salary": sum(row.net_salary for row in rows),
+        "summaries": summaries,
+    }
 
 
 def ensure_payroll_open(session: SessionDep, period: str) -> None:
@@ -277,6 +421,7 @@ def delete_attendance(item_id: int, session: SessionDep, _: CurrentUser) -> dict
 
 @router.post("/payroll-periods/{period}/calculate", response_model=list[PayrollRecord])
 def calculate_period(period: str, session: SessionDep, _: CurrentUser) -> list[PayrollRecord]:
+    ensure_payroll_open(session, period)
     return calculate_payroll_period(session, period)
 
 
@@ -285,14 +430,62 @@ def payroll_summary(period: str, session: SessionDep, _: CurrentUser) -> list[Pa
     return session.exec(select(PayrollRecord).where(PayrollRecord.period == period)).all()
 
 
+@router.get("/payroll-periods/{period}/overview")
+def payroll_overview(period: str, session: SessionDep, _: CurrentUser) -> dict:
+    return payroll_overview_payload(session, period)
+
+
+@router.get("/payroll-periods/{period}/overtime", response_model=list[AttendanceRecord])
+def payroll_overtime(period: str, session: SessionDep, _: CurrentUser, employee_id: int | None = None) -> list[AttendanceRecord]:
+    statement = select(AttendanceRecord).where(AttendanceRecord.period == period, AttendanceRecord.overtime_minutes > 0)
+    if employee_id:
+        statement = statement.where(AttendanceRecord.employee_id == employee_id)
+    rows = session.exec(statement).all()
+    return sorted(rows, key=lambda item: (item.work_date, item.employee_name_snapshot.casefold(), item.id or 0))
+
+
 @router.get("/payroll-periods/{period}/slips/{employee_id}", response_model=PayrollRecord | None)
 def payroll_slip(period: str, employee_id: int, session: SessionDep, _: CurrentUser) -> PayrollRecord | None:
     return session.exec(select(PayrollRecord).where(PayrollRecord.period == period, PayrollRecord.employee_id == employee_id)).first()
 
 
+@router.patch("/payroll-records/{item_id}", response_model=PayrollRecord)
+def update_payroll_record(item_id: int, payload: PayrollAdjustmentInput, session: SessionDep, _: CurrentUser) -> PayrollRecord:
+    row = session.get(PayrollRecord, item_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Data payroll tidak ditemukan.")
+    ensure_payroll_open(session, row.period)
+    employee = session.get(Employee, row.employee_id)
+    if not employee:
+        raise HTTPException(status_code=404, detail="Karyawan payroll tidak ditemukan.")
+    for field, value in payload.model_dump().items():
+        setattr(row, field, value)
+    row.pph21 = 0
+    row.bpjs_deduction = 0
+    row.net_salary = 0
+    attendance_rows = session.exec(
+        select(AttendanceRecord).where(AttendanceRecord.period == row.period, AttendanceRecord.employee_id == row.employee_id)
+    ).all()
+    calculate_payroll_record(row, employee, default_payroll_rule(session), attendance_rows)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
 @router.post("/payroll-periods/{period}/lock", response_model=list[PayrollRecord])
 def lock_period(period: str, session: SessionDep, _: CurrentUser) -> list[PayrollRecord]:
     rows = session.exec(select(PayrollRecord).where(PayrollRecord.period == period)).all()
+    if not rows:
+        raise HTTPException(status_code=409, detail="Payroll belum dihitung.")
+    attendance_review = session.exec(
+        select(AttendanceRecord).where(AttendanceRecord.period == period, AttendanceRecord.needs_review == True)  # noqa: E712
+    ).first()
+    payroll_review = session.exec(
+        select(PayrollRecord).where(PayrollRecord.period == period, PayrollRecord.needs_review == True)  # noqa: E712
+    ).first()
+    if attendance_review or payroll_review:
+        raise HTTPException(status_code=409, detail="Masih ada data absensi/payroll yang perlu review.")
     for row in rows:
         row.status = PeriodStatus.LOCKED
         session.add(row)

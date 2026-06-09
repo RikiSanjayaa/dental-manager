@@ -249,9 +249,10 @@ def preview_employees(path: str | Path) -> dict[str, Any]:
     for row in range(2, ws.max_row + 1):
         before = len(errors)
         name = get_by_header(ws, values_ws, headers, row, "name", errors, required=True)
-        base_salary = money_by_header(ws, values_ws, headers, row, "base_salary", errors, required=True, default=None)
-        if not name or base_salary is None:
+        base_salary = money_by_header(ws, values_ws, headers, row, "base_salary", errors, default=0) or 0
+        if not name:
             continue
+        training_value = first_by_header(ws, values_ws, headers, row, ["is_training", "masa_training", "training"], errors)
         employees.append(
             {
                 "row": row,
@@ -261,6 +262,7 @@ def preview_employees(path: str | Path) -> dict[str, Any]:
                 "join_date": str(get_by_header(ws, values_ws, headers, row, "join_date", errors) or "").strip() or None,
                 "base_salary": base_salary,
                 "working_days": int(money_by_header(ws, values_ws, headers, row, "working_days", errors, default=25) or 25),
+                "is_training": truthy_cell(training_value),
                 "bank_name": str(get_by_header(ws, values_ws, headers, row, "bank_name", errors) or "").strip() or None,
                 "account_name": str(get_by_header(ws, values_ws, headers, row, "account_name", errors) or name).strip(),
                 "account_number": str(get_by_header(ws, values_ws, headers, row, "account_number", errors) or "").strip() or None,
@@ -427,6 +429,7 @@ def commit_employees(session: Session, employees: list[dict[str, Any]]) -> dict[
         employee.join_date = parse_date(item["join_date"])
         employee.base_salary = item["base_salary"]
         employee.working_days = item["working_days"]
+        employee.is_training = item.get("is_training", False)
         employee.bank_name = item["bank_name"]
         employee.account_name = item["account_name"]
         employee.account_number = item["account_number"]

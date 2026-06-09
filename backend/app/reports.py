@@ -15,7 +15,7 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 from sqlmodel import Session, select
 
 from app.config import get_settings
-from app.models import Doctor, DoctorFeeRule, DoctorPeriodSummary, DoctorTransaction, Employee, PayrollRecord, PeriodStatus, Treatment
+from app.models import AttendanceRecord, Doctor, DoctorFeeRule, DoctorPeriodSummary, DoctorTransaction, Employee, PayrollRecord, PeriodStatus, Treatment
 
 
 def _money(value: float) -> str:
@@ -527,21 +527,268 @@ def doctor_fee_pdf_zip(session: Session, period: str) -> BytesIO:
     return stream
 
 
+def _payroll_records(session: Session, period: str) -> list[PayrollRecord]:
+    rows = session.exec(select(PayrollRecord).where(PayrollRecord.period == period)).all()
+    return sorted(rows, key=lambda item: (session.get(Employee, item.employee_id).name.casefold() if session.get(Employee, item.employee_id) else str(item.employee_id)))
+
+
+def _payroll_status(rows: list[PayrollRecord]) -> str:
+    return "FINAL" if rows and all(row.status == PeriodStatus.LOCKED for row in rows) else "DRAFT"
+
+
+def _payroll_gross(row: PayrollRecord) -> float:
+    return row.base_salary + row.double_shift_fee + row.sunday_fee + row.overtime_total + row.bonus + row.position_allowance
+
+
+def _payroll_deductions(row: PayrollRecord) -> float:
+    return row.bpjs_deduction + row.other_deduction + row.pph21
+
+
+def _payroll_overtime_rows(session: Session, period: str, employee_id: int | None = None) -> list[AttendanceRecord]:
+    statement = select(AttendanceRecord).where(AttendanceRecord.period == period, AttendanceRecord.overtime_minutes > 0)
+    if employee_id:
+        statement = statement.where(AttendanceRecord.employee_id == employee_id)
+    rows = session.exec(statement).all()
+    return sorted(rows, key=lambda item: (item.employee_name_snapshot.casefold(), item.work_date, item.id or 0))
+
+
+def _style_payroll_recap(ws) -> None:
+    ws.freeze_panes = "A5"
+    ws.row_dimensions[1].height = 22
+    ws.row_dimensions[2].height = 18
+    title_fill = PatternFill("solid", fgColor="4F81BD")
+    header_fill = PatternFill("solid", fgColor="1F4E79")
+    total_fill = PatternFill("solid", fgColor="D9EAF7")
+    for row in (1, 2):
+        for col in range(1, ws.max_column + 1):
+            cell = ws.cell(row, col)
+            cell.fill = title_fill
+            cell.font = Font(bold=True, size=16 if row == 1 else 11)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+    for cell in ws[4]:
+        cell.fill = header_fill
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = table_border
+    for row in range(5, ws.max_row + 1):
+        for col in range(1, ws.max_column + 1):
+            cell = ws.cell(row, col)
+            cell.border = table_border
+            cell.alignment = Alignment(vertical="center")
+            if isinstance(cell.value, (int, float)):
+                cell.number_format = '#,##0'
+        if ws.cell(row, 2).value == "TOTAL":
+            for col in range(1, ws.max_column + 1):
+                ws.cell(row, col).fill = total_fill
+                ws.cell(row, col).font = Font(bold=True)
+    widths = [6, 24, 18, 14, 12, 14, 12, 12, 10, 10, 10, 10, 16, 16, 12, 14, 16, 14, 16, 16, 14, 14, 18, 14, 16, 20, 18, 18]
+    for index, width in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(index)].width = width
+
+
+def _style_overtime_sheet(ws) -> None:
+    header_fill = PatternFill("solid", fgColor="1F4E79")
+    total_fill = PatternFill("solid", fgColor="D9EAF7")
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = table_border
+    for row in range(2, ws.max_row + 1):
+        for col in range(1, ws.max_column + 1):
+            cell = ws.cell(row, col)
+            cell.border = table_border
+            cell.alignment = Alignment(vertical="center")
+        if ws.cell(row, 1).value == "TOTAL":
+            for col in range(1, ws.max_column + 1):
+                ws.cell(row, col).fill = total_fill
+                ws.cell(row, col).font = Font(bold=True)
+    ws.freeze_panes = "A2"
+    _autosize(ws, 12, 34)
+
+
+def _write_payroll_slip_sheet(slip, records: list[PayrollRecord], session: Session, period: str) -> None:
+    dark_blue = "0B2F63"
+    orange = "F97316"
+    light_blue = "EAF2FF"
+    total_fill = "FCE4D6"
+    thin_gray = Side(style="thin", color="D9E2F3")
+    slip_border = Border(left=thin_gray, right=thin_gray, top=thin_gray, bottom=thin_gray)
+    money_format = '"Rp"#,##0'
+    row_cursor = 1
+    for record in records:
+        employee = session.get(Employee, record.employee_id)
+        employee_name = employee.name if employee else str(record.employee_id)
+        employee_position = employee.position if employee and employee.position else "-"
+        slip.merge_cells(start_row=row_cursor, start_column=1, end_row=row_cursor, end_column=5)
+        title = slip.cell(row_cursor, 1)
+        title.value = f"SLIP GAJI - {_clinic_name()}"
+        title.fill = PatternFill("solid", fgColor=dark_blue)
+        title.font = Font(bold=True, color="FFFFFF", size=14)
+        title.alignment = Alignment(horizontal="center", vertical="center")
+        slip.row_dimensions[row_cursor].height = 22
+
+        info_rows = [
+            ("Nama Karyawan", employee_name),
+            ("Jabatan", employee_position),
+            ("Periode", _period_label(period)),
+        ]
+        for offset, (label, value) in enumerate(info_rows, start=2):
+            label_cell = slip.cell(row_cursor + offset, 1)
+            value_cell = slip.cell(row_cursor + offset, 2)
+            label_cell.value = label
+            value_cell.value = value
+            label_cell.fill = PatternFill("solid", fgColor=light_blue)
+            label_cell.font = Font(bold=True)
+            for col in range(1, 6):
+                cell = slip.cell(row_cursor + offset, col)
+                cell.border = slip_border
+                cell.alignment = Alignment(vertical="center")
+
+        income_header_row = row_cursor + 6
+        slip.merge_cells(start_row=income_header_row, start_column=1, end_row=income_header_row, end_column=5)
+        income_header = slip.cell(income_header_row, 1)
+        income_header.value = "PENDAPATAN"
+        income_header.fill = PatternFill("solid", fgColor=orange)
+        income_header.font = Font(bold=True, color="FFFFFF")
+        income_header.alignment = Alignment(horizontal="center", vertical="center")
+
+        income_rows = [
+            ("Gaji Pokok", record.base_salary),
+            ("Bonus", record.bonus),
+            ("Tunjangan", record.position_allowance),
+            ("Lembur", record.overtime_total),
+            ("Masuk Hari Minggu", record.sunday_fee),
+            ("Double shift (Nerus)", record.double_shift_fee),
+        ]
+        for index, (label, value) in enumerate(income_rows, start=income_header_row + 1):
+            slip.cell(index, 1).value = label
+            slip.cell(index, 2).value = value
+
+        deduction_header_row = income_header_row + 8
+        slip.merge_cells(start_row=deduction_header_row, start_column=1, end_row=deduction_header_row, end_column=5)
+        deduction_header = slip.cell(deduction_header_row, 1)
+        deduction_header.value = "POTONGAN"
+        deduction_header.fill = PatternFill("solid", fgColor=dark_blue)
+        deduction_header.font = Font(bold=True, color="FFFFFF")
+        deduction_header.alignment = Alignment(horizontal="center", vertical="center")
+
+        deduction_rows = [
+            ("Keterlambatan", record.other_deduction),
+            ("BPJS", record.bpjs_deduction),
+            ("PPh 21", record.pph21),
+        ]
+        for index, (label, value) in enumerate(deduction_rows, start=deduction_header_row + 1):
+            slip.cell(index, 1).value = label
+            slip.cell(index, 2).value = value
+
+        total_row = deduction_header_row + 5
+        slip.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=3)
+        slip.cell(total_row, 1).value = "TOTAL GAJI DITERIMA"
+        slip.cell(total_row, 4).value = record.net_salary
+        slip.cell(total_row, 1).fill = PatternFill("solid", fgColor=total_fill)
+        slip.cell(total_row, 4).fill = PatternFill("solid", fgColor=total_fill)
+        slip.cell(total_row, 1).font = Font(bold=True)
+        slip.cell(total_row, 4).font = Font(bold=True)
+
+        for row in range(row_cursor, total_row + 1):
+            for col in range(1, 6):
+                cell = slip.cell(row, col)
+                cell.border = slip_border
+                cell.alignment = Alignment(vertical="center")
+                if isinstance(cell.value, (int, float)):
+                    cell.number_format = money_format
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+        row_cursor = total_row + 8
+    widths = [26, 20, 18, 20, 18]
+    for index, width in enumerate(widths, start=1):
+        slip.column_dimensions[get_column_letter(index)].width = width
+
+
+def _draw_slip_content(pdf: canvas.Canvas, record: PayrollRecord, employee: Employee | None, period: str, y_start: float = 270 * mm) -> None:
+    width, _ = A4
+    left = 18 * mm
+    right = width - 18 * mm
+    employee_name = employee.name if employee else f"Karyawan {record.employee_id}"
+    pdf.setFont("Helvetica-Bold", 15)
+    pdf.drawCentredString(width / 2, y_start, f"SLIP GAJI - {_clinic_name()}")
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(left, y_start - 12 * mm, "Nama Karyawan")
+    pdf.drawString(55 * mm, y_start - 12 * mm, employee_name)
+    pdf.drawString(left, y_start - 18 * mm, "Jabatan")
+    pdf.drawString(55 * mm, y_start - 18 * mm, employee.position if employee and employee.position else "-")
+    pdf.drawString(left, y_start - 24 * mm, "Periode")
+    pdf.drawString(55 * mm, y_start - 24 * mm, _period_label(period))
+
+    income = [
+        ("Gaji Pokok", record.base_salary),
+        ("Bonus", record.bonus),
+        ("Tunjangan", record.position_allowance),
+        ("Lembur", record.overtime_total),
+        ("Masuk Hari Minggu / Libur", record.sunday_fee),
+        ("Double shift (Nerus)", record.double_shift_fee),
+    ]
+    deductions = [
+        ("Keterlambatan / Potongan Lain", record.other_deduction),
+        ("BPJS", record.bpjs_deduction),
+        ("PPh 21", record.pph21),
+    ]
+    table_data = [["PENDAPATAN", ""], *[[label, _money(value)] for label, value in income], ["POTONGAN", ""], *[[label, _money(value)] for label, value in deductions], ["TOTAL GAJI DITERIMA", _money(record.net_salary)]]
+    table = Table(table_data, colWidths=[105 * mm, 55 * mm])
+    style = [
+        ("GRID", (0, 0), (-1, -1), 0.45, colors.black),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D9EAF7")),
+        ("BACKGROUND", (0, 7), (-1, 7), colors.HexColor("#D9EAF7")),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#F4B183")),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 7), (-1, 7), "Helvetica-Bold"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+        ("SPAN", (0, 0), (1, 0)),
+        ("SPAN", (0, 7), (1, 7)),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+    ]
+    table.setStyle(TableStyle(style))
+    table_width, table_height = table.wrapOn(pdf, right - left, 180 * mm)
+    table.drawOn(pdf, left, y_start - 34 * mm - table_height)
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(left, 35 * mm, "Disetujui oleh:")
+    pdf.drawString(left, 20 * mm, "________________________")
+
+
 def payroll_xlsx(session: Session, period: str) -> BytesIO:
     wb = Workbook()
     ws = wb.active
-    ws.title = "Rekap Payroll"
-    ws.append(["Periode", period])
+    ws.title = "Form Gaji Karyawan"
+    records = _payroll_records(session, period)
+    ws.merge_cells("A1:AB1")
+    ws.merge_cells("A2:G2")
+    ws["A1"] = "FORM REKAP GAJI KARYAWAN"
+    ws["A2"] = f"Periode Cut Off : {_period_label(period)}"
+    headers = ["No", "Nama Karyawan", "Jabatan", "Join Date", "Masa Kerja", "Gaji Pokok", "Jumlah Hari Kerja", "Nerus (double shift)", "Izin", "Sakit", "Cuti", "Alpha", "fee double shift (nerus)", "Masuk Hari Minggu", "Lembur (menit)", "Tarif Lembur (menit)", "Total Lembur", "Bonus", "Tunjangan Jabatan", "Potongan BPJS TK 2% JHT", "Potongan Lain", "PPh 21", "Total Gaji Bersih", "Pembayaran", "Nama Bank", "Nama Penerima", "no rekening", "nominal transfer"]
     ws.append([])
-    ws.append(["Karyawan", "Jabatan", "Gaji Pokok", "Lembur", "Bonus", "Tunjangan", "BPJS", "Potongan", "PPh21", "Gaji Bersih"])
-    records = session.exec(select(PayrollRecord).where(PayrollRecord.period == period)).all()
-    for record in records:
+    ws.append(headers)
+    for index, record in enumerate(records, start=1):
         employee = session.get(Employee, record.employee_id)
         ws.append(
             [
+                index,
                 employee.name if employee else record.employee_id,
                 employee.position if employee else None,
+                employee.join_date if employee else None,
+                None,
                 record.base_salary,
+                record.working_days,
+                record.double_shift_count,
+                record.izin_count,
+                record.sakit_count,
+                record.cuti_count,
+                record.alpha_count,
+                record.double_shift_fee,
+                record.sunday_fee,
+                record.overtime_minutes,
+                record.overtime_rate_per_minute,
                 record.overtime_total,
                 record.bonus,
                 record.position_allowance,
@@ -549,47 +796,93 @@ def payroll_xlsx(session: Session, period: str) -> BytesIO:
                 record.other_deduction,
                 record.pph21,
                 record.net_salary,
+                record.payment_method,
+                record.bank_name,
+                record.account_name,
+                record.account_number,
+                record.net_salary,
             ]
         )
+    if records:
+        ws.append(["", "TOTAL", "", "", "", sum(row.base_salary for row in records), "", sum(row.double_shift_count for row in records), sum(row.izin_count for row in records), sum(row.sakit_count for row in records), sum(row.cuti_count for row in records), sum(row.alpha_count for row in records), sum(row.double_shift_fee for row in records), sum(row.sunday_fee for row in records), sum(row.overtime_minutes for row in records), "", sum(row.overtime_total for row in records), sum(row.bonus for row in records), sum(row.position_allowance for row in records), sum(row.bpjs_deduction for row in records), sum(row.other_deduction for row in records), sum(row.pph21 for row in records), sum(row.net_salary for row in records), "", "", "", "", sum(row.net_salary for row in records)])
+    _style_payroll_recap(ws)
+
+    overtime = wb.create_sheet("REKAPAN LEMBUR")
+    overtime.append(["Nama", "Tanggal", "Timezone I", "Timezone II", "Menit Lembur", "Catatan"])
+    overtime_has_rows = False
+    for record in records:
+        employee = session.get(Employee, record.employee_id)
+        rows = _payroll_overtime_rows(session, period, record.employee_id)
+        if not rows and record.overtime_minutes <= 0:
+            continue
+        overtime_has_rows = True
+        start = overtime.max_row + 1
+        if rows:
+            for row in rows:
+                overtime.append([employee.name if employee else row.employee_name_snapshot, row.work_date, f"{row.timezone1_in or '-'} / {row.timezone1_out or '-'}", f"{row.timezone2_in or '-'} / {row.timezone2_out or '-'}", row.overtime_minutes, row.status_note])
+            total_overtime = sum(row.overtime_minutes for row in rows)
+        else:
+            overtime.append([employee.name if employee else record.employee_id, "-", "-", "-", record.overtime_minutes, "Detail absensi lembur tidak tersedia."])
+            total_overtime = record.overtime_minutes
+        overtime.append(["TOTAL", "", "", "", total_overtime, ""])
+        if overtime.max_row - 1 > start:
+            overtime.merge_cells(start_row=start, start_column=1, end_row=overtime.max_row - 1, end_column=1)
+    if not overtime_has_rows:
+        overtime.append(["Tidak ada data lembur untuk periode ini.", "", "", "", 0, ""])
+        overtime.merge_cells(start_row=2, start_column=1, end_row=2, end_column=4)
+    _style_overtime_sheet(overtime)
+
+    slip = wb.create_sheet("SLIP GAJI")
+    _write_payroll_slip_sheet(slip, records, session, period)
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)
     return stream
 
 
-def payroll_slip_pdf(session: Session, period: str, employee_id: int) -> BytesIO:
-    record = session.exec(select(PayrollRecord).where(PayrollRecord.period == period, PayrollRecord.employee_id == employee_id)).first()
-    employee = session.get(Employee, employee_id)
+def payroll_pdf(session: Session, period: str, employee_id: int | None = None, include_summary: bool = True) -> BytesIO:
+    all_records = _payroll_records(session, period)
+    records = [row for row in all_records if employee_id is None or row.employee_id == employee_id]
+    export_status = _payroll_status(all_records)
     stream = BytesIO()
-    pdf = canvas.Canvas(stream, pagesize=A4)
-    pdf.setFont("Helvetica-Bold", 16)
-    pdf.drawString(72, 780, "SLIP GAJI")
-    pdf.setFont("Helvetica", 10)
-    pdf.drawString(72, 760, f"Periode: {period}")
-    pdf.drawString(72, 744, f"Nama: {employee.name if employee else employee_id}")
-    pdf.drawString(72, 728, f"Jabatan: {employee.position if employee else '-'}")
-
-    y = 700
-    rows = []
-    if record:
-        rows = [
-            ("Gaji Pokok", record.base_salary),
-            ("Double shift", record.double_shift_fee),
-            ("Masuk Hari Minggu", record.sunday_fee),
-            ("Lembur", record.overtime_total),
-            ("Bonus", record.bonus),
-            ("Tunjangan", record.position_allowance),
-            ("Potongan BPJS", -record.bpjs_deduction),
-            ("Potongan Lain", -record.other_deduction),
-            ("PPh 21", -record.pph21),
-            ("Total diterima", record.net_salary),
-        ]
-    for label, amount in rows:
-        pdf.drawString(72, y, label)
-        pdf.drawRightString(420, y, _money(amount))
-        y -= 18
-    pdf.showPage()
+    pdf = canvas.Canvas(stream, pagesize=landscape(A4))
+    has_page = False
+    if include_summary:
+        y = _draw_pdf_header(pdf, "REKAP PAYROLL KARYAWAN", period, export_status)
+        summary_data = [["NO", "NAMA", "JABATAN", "GAJI POKOK", "LEMBUR", "POTONGAN", "TRANSFER", "BANK", "REKENING"]]
+        for index, record in enumerate(all_records, start=1):
+            employee = session.get(Employee, record.employee_id)
+            summary_data.append([index, _short_text(employee.name if employee else str(record.employee_id), 26), _short_text(employee.position if employee and employee.position else "-", 18), _money(record.base_salary), _money(record.overtime_total), _money(_payroll_deductions(record)), _money(record.net_salary), record.bank_name or "-", record.account_number or "-"])
+        summary_data.append(["", "TOTAL", "", _money(sum(row.base_salary for row in all_records)), _money(sum(row.overtime_total for row in all_records)), _money(sum(_payroll_deductions(row) for row in all_records)), _money(sum(row.net_salary for row in all_records)), "", ""])
+        table = Table(summary_data, colWidths=[10 * mm, 42 * mm, 35 * mm, 30 * mm, 28 * mm, 28 * mm, 32 * mm, 30 * mm, 38 * mm])
+        table.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("ALIGN", (3, 1), (6, -1), "RIGHT"), ("FONTSIZE", (0, 0), (-1, -1), 7), ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#D9EAF7")), ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold")]))
+        table_width, table_height = table.wrapOn(pdf, 277 * mm, y)
+        table.drawOn(pdf, 10 * mm, y - table_height)
+        has_page = True
+    for record in records:
+        if has_page:
+            pdf.showPage()
+        has_page = True
+        pdf.setPageSize(A4)
+        _draw_slip_content(pdf, record, session.get(Employee, record.employee_id), period)
     pdf.save()
+    stream.seek(0)
+    return stream
+
+
+def payroll_slip_pdf(session: Session, period: str, employee_id: int) -> BytesIO:
+    return payroll_pdf(session, period, employee_id=employee_id, include_summary=False)
+
+
+def payroll_pdf_zip(session: Session, period: str) -> BytesIO:
+    records = _payroll_records(session, period)
+    stream = BytesIO()
+    with ZipFile(stream, "w", ZIP_DEFLATED) as archive:
+        for index, record in enumerate(records, start=1):
+            employee = session.get(Employee, record.employee_id)
+            name = employee.name if employee else f"Karyawan {record.employee_id}"
+            pdf = payroll_slip_pdf(session, period, record.employee_id)
+            archive.writestr(f"{index:03d}-slip-gaji-{period}-{_safe_filename(name)}.pdf", pdf.getvalue())
     stream.seek(0)
     return stream
 
@@ -608,8 +901,8 @@ def template_xlsx(template_name: str, session: Session | None = None) -> BytesIO
         },
         "employees": {
             "sheet": "Employees",
-            "headers": ["attendance_id", "name", "position", "join_date", "base_salary", "working_days", "bank_name", "account_name", "account_number"],
-            "sample": ["1", "Nama Karyawan 1", "Supervisor", "2026-05-01", 2712250, 25, "BSI", "Nama Karyawan 1", "1234567890"],
+            "headers": ["attendance_id", "name", "position", "join_date", "base_salary", "working_days", "is_training", "bank_name", "account_name", "account_number"],
+            "sample": ["1", "Nama Karyawan 1", "Supervisor", "2026-05-01", 2712250, 25, "tidak", "BSI", "Nama Karyawan 1", "1234567890"],
         },
         "attendance": {
             "sheet": "Attendance",

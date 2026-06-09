@@ -10,7 +10,7 @@ from sqlmodel import select
 from app.config import get_settings
 from app.dependencies import CurrentUser, SessionDep
 from app.models import DoctorPeriodSummary, PayrollRecord, PeriodStatus, ReportArchive, User
-from app.reports import doctor_fee_pdf, doctor_fee_pdf_zip, doctor_fee_xlsx, payroll_slip_pdf, payroll_xlsx, template_xlsx
+from app.reports import doctor_fee_pdf, doctor_fee_pdf_zip, doctor_fee_xlsx, payroll_pdf, payroll_pdf_zip, payroll_slip_pdf, payroll_xlsx, template_xlsx
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -226,7 +226,45 @@ def export_payroll(period: str, format: str, session: SessionDep, user: CurrentU
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
-    raise HTTPException(status_code=400, detail="Gunakan endpoint slip untuk PDF per karyawan.")
+    if format == "pdf":
+        stream = payroll_pdf(session, period)
+        filename = f"payroll-{period}.pdf"
+        data = _archive_stream(
+            session,
+            user,
+            stream,
+            report_type="payroll",
+            period=period,
+            status=_payroll_export_status(session, period),
+            format="pdf",
+            filename=filename,
+            media_type="application/pdf",
+        )
+        return StreamingResponse(
+            iter([data]),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    if format in {"zip", "pdf-zip"}:
+        stream = payroll_pdf_zip(session, period)
+        filename = f"payroll-{period}-per-karyawan.zip"
+        data = _archive_stream(
+            session,
+            user,
+            stream,
+            report_type="payroll_slip",
+            period=period,
+            status=_payroll_export_status(session, period),
+            format="zip",
+            filename=filename,
+            media_type="application/zip",
+        )
+        return StreamingResponse(
+            iter([data]),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    raise HTTPException(status_code=400, detail="Format payroll mendukung xlsx, pdf, atau zip.")
 
 
 @router.get("/payroll/{period}/slips/{employee_id}.pdf")

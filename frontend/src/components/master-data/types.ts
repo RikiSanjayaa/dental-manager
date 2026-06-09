@@ -8,6 +8,7 @@ export type Employee = {
   join_date?: string;
   base_salary: number;
   working_days: number;
+  is_training: boolean;
   bank_name?: string;
   account_name?: string;
   account_number?: string;
@@ -54,6 +55,7 @@ export type PreviewRow = {
   attendance_id?: string;
   bank_name?: string;
   account_number?: string;
+  is_training?: boolean;
   treatment_price?: number;
   base_salary?: number;
   normal_fee_rate?: number;

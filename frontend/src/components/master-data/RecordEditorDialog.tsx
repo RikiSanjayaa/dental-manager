@@ -5,6 +5,7 @@ import { Field } from "@cloudflare/kumo/components/field";
 import { Grid, GridItem } from "@cloudflare/kumo/components/grid";
 import { Input } from "@cloudflare/kumo/components/input";
 import { Select } from "@cloudflare/kumo/components/select";
+import { Switch } from "@cloudflare/kumo/components/switch";
 
 import { DatePickerPopover } from "../DatePickerPopover";
 import { MASTER_META } from "./constants";
@@ -332,8 +333,18 @@ export function RecordEditorDialog({
                       onChange={(event) =>
                         onFieldChange("working_days", event.target.value)
                       }
-                    />
-                  </Field>
+                      />
+                    </Field>
+                  <Switch
+                    size="sm"
+                    variant="neutral"
+                    label="Masa Training"
+                    labelTooltip="Jika aktif, payroll memakai 80% dari gaji pokok efektif karyawan."
+                    checked={v.is_training === "true"}
+                    onCheckedChange={(checked) =>
+                      onFieldChange("is_training", checked ? "true" : "false")
+                    }
+                  />
                   <Field label="Bank" required={false}>
                     <Input
                       value={v.bank_name ?? ""}

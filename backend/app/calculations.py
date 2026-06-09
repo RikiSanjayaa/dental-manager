@@ -174,22 +174,22 @@ def calculate_payroll_record(
     rule: PayrollRule,
     attendance_rows: list[AttendanceRecord],
 ) -> PayrollRecord:
-    record.base_salary = record.base_salary or employee.base_salary
-    record.working_days = record.working_days or employee.working_days or 25
-    record.overtime_rate_per_minute = record.overtime_rate_per_minute or rule.overtime_rate_per_minute
+    record.base_salary = effective_base_salary(employee, rule)
+    record.working_days = employee.working_days or 25
+    record.overtime_rate_per_minute = rule.overtime_rate_per_minute
 
     auto_overtime = sum(row.overtime_minutes for row in attendance_rows)
-    auto_sunday = sum(1 for row in attendance_rows if row.is_sunday)
+    auto_sunday = sum(1 for row in attendance_rows if row.is_holiday and row.overtime_minutes > 0)
     auto_double = sum(1 for row in attendance_rows if row.is_double_shift)
-    record.overtime_minutes = record.overtime_minutes or auto_overtime
-    record.sunday_count = record.sunday_count or auto_sunday
-    record.double_shift_count = record.double_shift_count or auto_double
+    record.overtime_minutes = auto_overtime
+    record.sunday_count = auto_sunday
+    record.double_shift_count = auto_double
 
     daily_salary = record.base_salary / record.working_days if record.working_days else 0
-    record.double_shift_fee = round_money(record.double_shift_fee or daily_salary * record.double_shift_count * rule.double_shift_multiplier)
-    record.sunday_fee = round_money(record.sunday_fee or daily_salary * record.sunday_count * rule.sunday_multiplier)
+    record.double_shift_fee = round_money(daily_salary * record.double_shift_count * rule.double_shift_multiplier)
+    record.sunday_fee = round_money(daily_salary * record.sunday_count * rule.sunday_multiplier)
     record.overtime_total = round_money(record.overtime_minutes * record.overtime_rate_per_minute)
-    record.bpjs_deduction = round_money(record.bpjs_deduction or record.base_salary * rule.bpjs_jht_rate)
+    record.bpjs_deduction = round_money(record.base_salary * rule.bpjs_jht_rate)
 
     gross = (
         record.base_salary
@@ -199,13 +199,20 @@ def calculate_payroll_record(
         + record.bonus
         + record.position_allowance
     )
-    record.pph21 = round_money(record.pph21 or ((gross * rule.pph21_rate) if gross > rule.pph21_threshold else 0))
+    record.pph21 = round_money((gross * rule.pph21_rate) if gross > rule.pph21_threshold else 0)
     record.net_salary = round_money(gross - record.bpjs_deduction - record.other_deduction - record.pph21)
     record.bank_name = record.bank_name or employee.bank_name
     record.account_name = record.account_name or employee.account_name or employee.name
     record.account_number = record.account_number or employee.account_number
     record.calculated_at = datetime.utcnow()
     return record
+
+
+def effective_base_salary(employee: Employee, rule: PayrollRule) -> float:
+    base_salary = employee.base_salary or rule.default_base_salary or 0
+    if employee.is_training:
+        return round_money(base_salary * 0.8)
+    return base_salary
 
 
 def calculate_payroll_period(session: Session, period: str) -> list[PayrollRecord]:
@@ -225,8 +232,8 @@ def calculate_payroll_period(session: Session, period: str) -> list[PayrollRecor
             record = PayrollRecord(
                 period=period,
                 employee_id=employee.id,
-                base_salary=employee.base_salary,
-                working_days=employee.working_days,
+                base_salary=effective_base_salary(employee, rule),
+                working_days=employee.working_days or 25,
                 payment_method="Transfer",
             )
         calculate_payroll_record(record, employee, rule, attendance_rows)

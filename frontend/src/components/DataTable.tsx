@@ -10,6 +10,7 @@ export type Column<T> = {
   render: (row: T) => ReactNode;
   align?: "left" | "right" | "center";
   sticky?: "left" | "right";
+  width?: number;
 };
 
 type Props<T> = {
@@ -69,10 +70,36 @@ export function DataTable<T>({
     align === "right" ? "text-right" : align === "center" ? "text-center" : undefined;
   const computedMinWidth =
     minTableWidth ?? Math.max(920, columns.length * 150 + (selectable ? 52 : 0));
-  const stickyLeftStyle = (column: Column<T>) =>
-    selectable && stickyColumn(column) === "left"
-      ? { left: 40 }
-      : undefined;
+  const stickyRightOffsets = useMemo(() => {
+    let offset = 0;
+    const offsets = new Map<string, number>();
+    [...columns].reverse().forEach((column) => {
+      if (stickyColumn(column) === "right") {
+        offsets.set(column.key, offset);
+        offset += column.width ?? (column.key === "actions" ? 56 : 160);
+      }
+    });
+    return offsets;
+  }, [columns]);
+  const stickyStyle = (column: Column<T>) => {
+    const sticky = stickyColumn(column);
+    if (sticky === "left") {
+      return {
+        left: selectable ? 40 : 0,
+        width: column.width,
+        minWidth: column.width,
+      };
+    }
+    if (sticky === "right") {
+      const right = stickyRightOffsets.get(column.key) ?? 0;
+      return {
+        right,
+        width: column.width,
+        minWidth: column.width,
+      };
+    }
+    return column.width ? { width: column.width, minWidth: column.width } : undefined;
+  };
 
   return (
     <div className="space-y-3">
@@ -94,7 +121,7 @@ export function DataTable<T>({
                 <Table.Head
                   key={column.key}
                   sticky={stickyColumn(column)}
-                  style={stickyLeftStyle(column)}
+                  style={stickyStyle(column)}
                   className={`${alignClass(column.align) ?? ""} whitespace-nowrap text-xs`}
                 >
                   {column.header || (column.key === "actions" ? <span className="sr-only">Aksi</span> : null)}
@@ -133,7 +160,7 @@ export function DataTable<T>({
                       <Table.Cell
                         key={column.key}
                         sticky={stickyColumn(column)}
-                        style={stickyLeftStyle(column)}
+                        style={stickyStyle(column)}
                         className={`${alignClass(column.align) ?? ""} whitespace-nowrap`}
                       >
                         {column.render(row)}

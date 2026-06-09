@@ -79,7 +79,6 @@ function isSunday(value: string) {
 }
 
 type AttendanceHoliday = { id: number; holiday_date: string; name?: string | null; is_holiday: boolean };
-
 export function AttendancePage() {
   const queryClient = useQueryClient();
   const toasts = useKumoToastManager();
@@ -304,7 +303,7 @@ export function AttendancePage() {
 
       <Banner
         variant="secondary"
-        description="Kolom terlambat, pulang awal, absen, dan total dihitung otomatis dari aturan absensi default di backend."
+        description="Kolom terlambat, pulang awal, absen, total, dan lembur dihitung otomatis dari aturan absensi default di backend. Periode dikunci dari page Payroll."
       />
 
       <LayerCard className="flex flex-col gap-4 p-4">
