@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileDown, Search, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { ConfirmDeleteDialog } from "../components/ConfirmDeleteDialog";
 import { DataTable } from "../components/DataTable";
 import { api, downloadFile } from "../lib/api";
 
@@ -73,6 +74,7 @@ export function ReportsPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [formatFilter, setFormatFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [deleteTarget, setDeleteTarget] = useState<ReportArchive | null>(null);
 
   const { data: archives } = useQuery({
     queryKey: ["report-archives"],
@@ -213,9 +215,7 @@ export function ReportsPage() {
                     aria-label={`Hapus ${row.filename}`}
                     icon={<Trash2 size={15} />}
                     loading={deleteArchive.isPending}
-                    onClick={() => {
-                      if (confirm(`Hapus arsip ${row.filename}?`)) deleteArchive.mutate(row.id);
-                    }}
+                    onClick={() => setDeleteTarget(row)}
                   />
                 </div>
               ),
@@ -223,6 +223,18 @@ export function ReportsPage() {
           ]}
         />
       </LayerCard>
+
+      <ConfirmDeleteDialog
+        open={Boolean(deleteTarget)}
+        title="Hapus arsip export?"
+        description={deleteTarget ? `${deleteTarget.filename} akan dihapus dari arsip laporan.` : ""}
+        isDeleting={deleteArchive.isPending}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onConfirm={() => {
+          if (deleteTarget) deleteArchive.mutate(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+      />
     </>
   );
 }

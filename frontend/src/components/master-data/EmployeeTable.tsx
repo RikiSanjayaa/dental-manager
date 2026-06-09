@@ -92,7 +92,7 @@ export function EmployeeTable({
           key: "salary",
           header: "Gaji Pokok",
           align: "right",
-          render: (row) => row.base_salary ? rupiah.format(row.base_salary) : "Ikut default",
+          render: (row) => rupiah.format(row.base_salary),
         },
         {
           key: "training",

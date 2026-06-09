@@ -9,6 +9,7 @@ import { CalendarDays, RefreshCcw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { DataTable } from "../components/DataTable";
+import { ConfirmDeleteDialog } from "../components/ConfirmDeleteDialog";
 import { dateToString, MultiDatePickerPopover, stringToDate } from "../components/DatePickerPopover";
 import { PageHeader } from "../components/PageHeader";
 import { api } from "../lib/api";
@@ -106,6 +107,8 @@ export function SettingsPage() {
   const [payrollDrafts, setPayrollDrafts] = useState<Record<number, PayrollDraft>>({});
   const [attendanceDrafts, setAttendanceDrafts] = useState<Record<number, AttendanceDraft>>({});
   const [doctorDrafts, setDoctorDrafts] = useState<Record<number, DoctorDraft>>({});
+  const [holidayDeleteTarget, setHolidayDeleteTarget] = useState<AttendanceHoliday | null>(null);
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
 
   const { data: payrollRules } = useQuery({
     queryKey: ["payroll-rules"],
@@ -132,7 +135,7 @@ export function SettingsPage() {
     for (const rule of payrollRules ?? []) {
       next[rule.id] = {
         name: rule.name,
-        default_base_salary: String(rule.default_base_salary),
+        default_base_salary: String(rule.default_base_salary || 2712250),
         bpjs_jht_rate: String(rule.bpjs_jht_rate * 100),
         overtime_rate_per_minute: String(rule.overtime_rate_per_minute),
         pph21_threshold: String(rule.pph21_threshold),
@@ -268,8 +271,7 @@ export function SettingsPage() {
   });
 
   function confirmRefresh() {
-    const ok = window.confirm("Refresh database akan menghapus semua data app dan seed ulang admin/default rules. Lanjutkan?");
-    if (ok) refreshDatabase.mutate();
+    setRefreshConfirmOpen(true);
   }
 
   function updatePayrollDraft(id: number, field: keyof PayrollDraft, value: string) {
@@ -330,37 +332,37 @@ export function SettingsPage() {
                 >
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
-                      <Field label="Gaji Pokok Default">
+                      <Field label="Gaji Pokok Default" labelTooltip="Gaji pokok bulanan bawaan untuk karyawan baru atau import karyawan yang tidak mengisi gaji pokok. Nilai ini masih bisa dioverride di Master Data Karyawan.">
                         <Input type="number" value={values.default_base_salary} onChange={(event) => updatePayrollDraft(rule.id, "default_base_salary", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="BPJS JHT (%)">
+                      <Field label="BPJS JHT (%)" labelTooltip="Persentase potongan BPJS/JHT dari gaji pokok efektif pada kalkulasi payroll.">
                         <Input type="number" step="0.01" value={values.bpjs_jht_rate} onChange={(event) => updatePayrollDraft(rule.id, "bpjs_jht_rate", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="Tarif Lembur / Menit">
+                      <Field label="Tarif Lembur / Menit" labelTooltip="Nominal rupiah per menit lembur yang dikalikan dengan total menit lembur absensi.">
                         <Input type="number" value={values.overtime_rate_per_minute} onChange={(event) => updatePayrollDraft(rule.id, "overtime_rate_per_minute", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="Threshold PPh21">
+                      <Field label="Threshold PPh21" labelTooltip="Batas gross salary bulanan sebelum PPh21 otomatis dihitung.">
                         <Input type="number" value={values.pph21_threshold} onChange={(event) => updatePayrollDraft(rule.id, "pph21_threshold", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="PPh21 (%)">
+                      <Field label="PPh21 (%)" labelTooltip="Persentase PPh21 yang diterapkan jika gross salary melewati threshold.">
                         <Input type="number" step="0.01" value={values.pph21_rate} onChange={(event) => updatePayrollDraft(rule.id, "pph21_rate", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="Fee Masuk Libur (x Gaji Harian)">
+                      <Field label="Fee Masuk Libur (x Gaji Harian)" labelTooltip="Multiplier gaji harian untuk kompensasi masuk di hari Minggu atau tanggal merah.">
                         <Input type="number" step="0.001" value={values.sunday_multiplier} onChange={(event) => updatePayrollDraft(rule.id, "sunday_multiplier", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="Multiplier Double Shift">
+                      <Field label="Multiplier Double Shift" labelTooltip="Multiplier gaji harian untuk karyawan yang menjalankan double shift dalam satu hari.">
                         <Input type="number" step="0.001" value={values.double_shift_multiplier} onChange={(event) => updatePayrollDraft(rule.id, "double_shift_multiplier", event.target.value)} />
                       </Field>
                     </div>
@@ -394,22 +396,22 @@ export function SettingsPage() {
                 >
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
-                      <Field label="Timezone I Mulai">
+                      <Field label="Timezone I Mulai" labelTooltip="Jam masuk standar shift Timezone I untuk menghitung keterlambatan.">
                         <Input type="time" value={values.timezone1_start} onChange={(event) => updateAttendanceDraft(rule.id, "timezone1_start", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="Timezone I Selesai">
+                      <Field label="Timezone I Selesai" labelTooltip="Jam pulang standar shift Timezone I untuk menghitung pulang awal dan lembur.">
                         <Input type="time" value={values.timezone1_end} onChange={(event) => updateAttendanceDraft(rule.id, "timezone1_end", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="Timezone II Mulai">
+                      <Field label="Timezone II Mulai" labelTooltip="Jam masuk standar shift Timezone II untuk menghitung keterlambatan.">
                         <Input type="time" value={values.timezone2_start} onChange={(event) => updateAttendanceDraft(rule.id, "timezone2_start", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="Timezone II Selesai">
+                      <Field label="Timezone II Selesai" labelTooltip="Jam pulang standar shift Timezone II untuk menghitung pulang awal dan lembur.">
                         <Input type="time" value={values.timezone2_end} onChange={(event) => updateAttendanceDraft(rule.id, "timezone2_end", event.target.value)} />
                       </Field>
                     </div>
@@ -443,22 +445,22 @@ export function SettingsPage() {
                 >
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
-                      <Field label="Fee Normal (%)">
+                      <Field label="Fee Normal (%)" labelTooltip="Rate fee dokter default untuk treatment non-ortho jika master dokter tidak mengoverride.">
                         <Input type="number" step="0.01" value={values.normal_fee_rate} onChange={(event) => updateDoctorDraft(rule.id, "normal_fee_rate", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="Fee Ortho (%)">
+                      <Field label="Fee Ortho (%)" labelTooltip="Rate fee dokter default untuk treatment ortho/behel jika master dokter tidak mengoverride.">
                         <Input type="number" step="0.01" value={values.ortho_fee_rate} onChange={(event) => updateDoctorDraft(rule.id, "ortho_fee_rate", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="Pajak (%)">
+                      <Field label="Pajak (%)" labelTooltip="Persentase pajak default yang mengurangi nominal transfer fee dokter.">
                         <Input type="number" step="0.01" value={values.tax_rate} onChange={(event) => updateDoctorDraft(rule.id, "tax_rate", event.target.value)} />
                       </Field>
                     </div>
                     <div>
-                      <Field label="Potongan Default">
+                      <Field label="Potongan Default" labelTooltip="Nominal potongan default per dokter saat rekap fee dokter dihitung.">
                         <Input type="number" value={values.default_deduction} onChange={(event) => updateDoctorDraft(rule.id, "default_deduction", event.target.value)} />
                       </Field>
                     </div>
@@ -523,7 +525,7 @@ export function SettingsPage() {
                     <Button size="sm" variant="secondary" icon={<CalendarDays size={16} />} loading={saveAttendanceHoliday.isPending} onClick={() => saveAttendanceHoliday.mutate({ holiday_date: row.holiday_date, is_holiday: !row.is_holiday, name: row.is_holiday ? "Jadwal masuk" : "Tanggal merah" })}>
                       {row.is_holiday ? "Jadikan biasa" : "Jadikan libur"}
                     </Button>
-                    <Button size="sm" variant="secondary-destructive" shape="square" aria-label="Hapus override libur" loading={deleteAttendanceHoliday.isPending} onClick={() => deleteAttendanceHoliday.mutate(row.id)}>
+                    <Button size="sm" variant="secondary-destructive" shape="square" aria-label="Hapus override libur" loading={deleteAttendanceHoliday.isPending} onClick={() => setHolidayDeleteTarget(row)}>
                       <Trash2 size={16} />
                     </Button>
                   </div>
@@ -548,6 +550,31 @@ export function SettingsPage() {
           </LayerCard.Primary>
         </LayerCard>
       ) : null}
+
+      <ConfirmDeleteDialog
+        open={Boolean(holidayDeleteTarget)}
+        title="Hapus tanggal khusus?"
+        description={holidayDeleteTarget ? `${holidayDeleteTarget.holiday_date} akan dihapus dari kalender libur absensi.` : ""}
+        isDeleting={deleteAttendanceHoliday.isPending}
+        onOpenChange={(open) => !open && setHolidayDeleteTarget(null)}
+        onConfirm={() => {
+          if (holidayDeleteTarget) deleteAttendanceHoliday.mutate(holidayDeleteTarget.id);
+          setHolidayDeleteTarget(null);
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        open={refreshConfirmOpen}
+        title="Refresh database?"
+        description="Semua data app akan dihapus dan database akan di-seed ulang. Gunakan hanya untuk development."
+        confirmLabel="Refresh"
+        isDeleting={refreshDatabase.isPending}
+        onOpenChange={setRefreshConfirmOpen}
+        onConfirm={() => {
+          refreshDatabase.mutate();
+          setRefreshConfirmOpen(false);
+        }}
+      />
     </>
   );
 }

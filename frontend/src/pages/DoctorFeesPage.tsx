@@ -440,7 +440,7 @@ export function DoctorFeesPage() {
       <Banner variant={banner.variant} description={banner.description} />
 
       <LayerCard className="flex flex-col gap-4 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <Text as="h2" variant="heading3">Rekap Fee Dokter</Text>
             <p className="mt-1 text-sm text-kumo-subtle">
@@ -516,6 +516,7 @@ export function DoctorFeesPage() {
             <Select.Option value="locked">Locked</Select.Option>
           </Select>
         </div>
+
 
         <DataTable
           rows={filteredSummaries}

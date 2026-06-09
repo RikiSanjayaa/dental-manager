@@ -15,6 +15,7 @@ import { AttendanceEditorDialog } from "../components/attendance/AttendanceEdito
 import { AttendanceImportPreviewDialog } from "../components/attendance/AttendanceImportPreviewDialog";
 import type { AttendancePreview, AttendanceRecord, EditorSession, Employee, ImportSession } from "../components/attendance/types";
 import { attendancePayload, emptyAttendanceValues, includesText, valuesFromAttendance } from "../components/attendance/utils";
+import { ConfirmDeleteDialog } from "../components/ConfirmDeleteDialog";
 import { DataTable } from "../components/DataTable";
 import { DatePickerPopover } from "../components/DatePickerPopover";
 import { api } from "../lib/api";
@@ -90,6 +91,12 @@ export function AttendancePage() {
   const [attendanceFilter, setAttendanceFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; ids: number[]; title: string; description: string }>({
+    open: false,
+    ids: [],
+    title: "",
+    description: "",
+  });
   const [editor, setEditor] = useState<EditorSession>({
     open: false,
     mode: "create",
@@ -276,7 +283,12 @@ export function AttendancePage() {
   function deleteSelected() {
     const ids = Array.from(selectedIds);
     if (!ids.length) return;
-    if (confirm(`Hapus ${ids.length} absensi terpilih?`)) deleteSelectedAttendance.mutate(ids);
+    setDeleteConfirm({
+      open: true,
+      ids,
+      title: "Hapus absensi terpilih?",
+      description: `${ids.length} absensi akan dihapus permanen dari periode ini.`,
+    });
   }
 
   return (
@@ -445,9 +457,12 @@ export function AttendancePage() {
                         icon={<Trash2 className="mr-2" size={16} />}
                         variant="danger"
                         disabled={deleteAttendance.isPending}
-                        onClick={() => {
-                          if (confirm(`Hapus absensi ${row.employee_name_snapshot} ${row.work_date}?`)) deleteAttendance.mutate(row.id);
-                        }}
+                        onClick={() => setDeleteConfirm({
+                          open: true,
+                          ids: [row.id],
+                          title: "Hapus absensi?",
+                          description: `${row.employee_name_snapshot} pada ${row.work_date} akan dihapus permanen.`,
+                        })}
                       >
                         Hapus
                       </DropdownMenu.Item>
@@ -471,6 +486,19 @@ export function AttendancePage() {
           return { ...current, values };
         })}
         onSubmit={() => saveAttendance.mutate(editor)}
+      />
+
+      <ConfirmDeleteDialog
+        open={deleteConfirm.open}
+        title={deleteConfirm.title}
+        description={deleteConfirm.description}
+        isDeleting={deleteAttendance.isPending || deleteSelectedAttendance.isPending}
+        onOpenChange={(open) => setDeleteConfirm((current) => ({ ...current, open }))}
+        onConfirm={() => {
+          if (deleteConfirm.ids.length === 1) deleteAttendance.mutate(deleteConfirm.ids[0]);
+          else deleteSelectedAttendance.mutate(deleteConfirm.ids);
+          setDeleteConfirm((current) => ({ ...current, open: false }));
+        }}
       />
 
       <AttendanceImportPreviewDialog

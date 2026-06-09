@@ -49,7 +49,7 @@ class EmployeeInput(BaseModel):
     attendance_id: str | None = None
     position: str | None = None
     join_date: str | None = None
-    base_salary: float = 0
+    base_salary: float = 2_712_250
     working_days: int = 25
     is_training: bool = False
     bank_name: str | None = None

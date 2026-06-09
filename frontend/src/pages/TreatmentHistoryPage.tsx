@@ -10,6 +10,7 @@ import { FileDown, FileUp, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-r
 import { ChangeEvent, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { ConfirmDeleteDialog } from "../components/ConfirmDeleteDialog";
 import { DataTable } from "../components/DataTable";
 import { TransactionEditorDialog } from "../components/treatment-history/TransactionEditorDialog";
 import { TransactionImportPreviewDialog } from "../components/treatment-history/TransactionImportPreviewDialog";
@@ -40,6 +41,12 @@ export function TreatmentHistoryPage() {
   const [reviewFilter, setReviewFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; ids: number[]; title: string; description: string }>({
+    open: false,
+    ids: [],
+    title: "",
+    description: "",
+  });
   const [editor, setEditor] = useState<EditorSession>({
     open: false,
     mode: "create",
@@ -324,7 +331,12 @@ export function TreatmentHistoryPage() {
                   loading={deleteSelectedTransactions.isPending}
                   onClick={() => {
                     const ids = Array.from(selectedTransactionIds);
-                    if (confirm(`Hapus ${ids.length} transaksi terpilih?`)) deleteSelectedTransactions.mutate(ids);
+                    setDeleteConfirm({
+                      open: true,
+                      ids,
+                      title: "Hapus transaksi terpilih?",
+                      description: `${ids.length} transaksi akan dihapus permanen dari periode ini.`,
+                    });
                   }}
                 >
                   Hapus
@@ -390,7 +402,12 @@ export function TreatmentHistoryPage() {
                         variant="danger"
                         disabled={deleteTransaction.isPending}
                         onClick={() => {
-                          if (confirm(`Hapus transaksi ${row.patient_name}?`)) deleteTransaction.mutate(row.id);
+                          setDeleteConfirm({
+                            open: true,
+                            ids: [row.id],
+                            title: "Hapus transaksi?",
+                            description: `Transaksi ${row.patient_name} pada ${row.transaction_date} akan dihapus permanen.`,
+                          });
                         }}
                       >
                         Hapus
@@ -415,6 +432,19 @@ export function TreatmentHistoryPage() {
         onSubmitAndAddAnother={() => {
           addAnotherAfterSaveRef.current = true;
           saveTransaction.mutate(editor);
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        open={deleteConfirm.open}
+        title={deleteConfirm.title}
+        description={deleteConfirm.description}
+        isDeleting={deleteTransaction.isPending || deleteSelectedTransactions.isPending}
+        onOpenChange={(open) => setDeleteConfirm((current) => ({ ...current, open }))}
+        onConfirm={() => {
+          if (deleteConfirm.ids.length === 1) deleteTransaction.mutate(deleteConfirm.ids[0]);
+          else deleteSelectedTransactions.mutate(deleteConfirm.ids);
+          setDeleteConfirm((current) => ({ ...current, open: false }));
         }}
       />
 

@@ -48,7 +48,8 @@ def ensure_sqlite_columns() -> None:
         payroll_rule_columns = {column["name"] for column in inspector.get_columns("payrollrule")}
         with engine.begin() as connection:
             if "default_base_salary" not in payroll_rule_columns:
-                connection.execute(text("ALTER TABLE payrollrule ADD COLUMN default_base_salary FLOAT DEFAULT 0"))
+                connection.execute(text("ALTER TABLE payrollrule ADD COLUMN default_base_salary FLOAT DEFAULT 2712250"))
+            connection.execute(text("UPDATE payrollrule SET default_base_salary = 2712250 WHERE default_base_salary IS NULL OR default_base_salary = 0"))
     if "attendancerecord" in table_names:
         attendance_columns = {column["name"] for column in inspector.get_columns("attendancerecord")}
         with engine.begin() as connection:

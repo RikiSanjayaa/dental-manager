@@ -77,7 +77,7 @@ export function emptyEditorValues(
     attendance_id: "",
     position: "",
     join_date: "",
-    base_salary: "0",
+    base_salary: "2712250",
     working_days: "25",
     is_training: "false",
     bank_name: "",

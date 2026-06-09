@@ -18,6 +18,8 @@ from app.models import (
 )
 from app.utils import money_to_float, normalize_text, parse_date, parse_period, parse_time
 
+DEFAULT_BASE_SALARY = 2_712_250
+
 
 def safe_cell_value(
     formula_ws,
@@ -249,7 +251,7 @@ def preview_employees(path: str | Path) -> dict[str, Any]:
     for row in range(2, ws.max_row + 1):
         before = len(errors)
         name = get_by_header(ws, values_ws, headers, row, "name", errors, required=True)
-        base_salary = money_by_header(ws, values_ws, headers, row, "base_salary", errors, default=0) or 0
+        base_salary = money_by_header(ws, values_ws, headers, row, "base_salary", errors, default=DEFAULT_BASE_SALARY) or DEFAULT_BASE_SALARY
         if not name:
             continue
         training_value = first_by_header(ws, values_ws, headers, row, ["is_training", "masa_training", "training"], errors)

@@ -90,7 +90,7 @@ class PayrollRule(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
     is_default: bool = False
-    default_base_salary: float = 0
+    default_base_salary: float = 2_712_250
     bpjs_jht_rate: float = 0.02
     overtime_rate_per_minute: float = 250
     pph21_threshold: float = 5_400_000

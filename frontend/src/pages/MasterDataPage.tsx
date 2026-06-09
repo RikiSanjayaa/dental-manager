@@ -464,69 +464,69 @@ export function MasterDataPage() {
 
         {/* Tables */}
         {activeTab === "treatments" ? (
-          <TreatmentTable
-            rows={filteredTreatments}
-            selectedKeys={selectedRows.treatments}
-            isTogglePending={toggleActiveRecord.isPending}
-            isDeletePending={permanentlyDeleteRecord.isPending}
-            onEdit={(id, row) => openEdit("treatments", id, row)}
-            onToggleActive={(id, active) =>
-              toggleActiveRecord.mutate({ target: "treatments", id, active })
-            }
-            onDelete={(id, name) =>
-              setPermanentDelete({ open: true, target: "treatments", id, name })
-            }
-            onToggleRow={(row, selected) =>
-              toggleSelected("treatments", row.id, selected)
-            }
-            onTogglePage={(rows, selected) =>
-              togglePageSelected("treatments", rows, selected)
-            }
-          />
+            <TreatmentTable
+              rows={filteredTreatments}
+              selectedKeys={selectedRows.treatments}
+              isTogglePending={toggleActiveRecord.isPending}
+              isDeletePending={permanentlyDeleteRecord.isPending}
+              onEdit={(id, row) => openEdit("treatments", id, row)}
+              onToggleActive={(id, active) =>
+                toggleActiveRecord.mutate({ target: "treatments", id, active })
+              }
+              onDelete={(id, name) =>
+                setPermanentDelete({ open: true, target: "treatments", id, name })
+              }
+              onToggleRow={(row, selected) =>
+                toggleSelected("treatments", row.id, selected)
+              }
+              onTogglePage={(rows, selected) =>
+                togglePageSelected("treatments", rows, selected)
+              }
+            />
         ) : null}
 
         {activeTab === "doctors" ? (
-          <DoctorTable
-            rows={filteredDoctors}
-            selectedKeys={selectedRows.doctors}
-            isTogglePending={toggleActiveRecord.isPending}
-            isDeletePending={permanentlyDeleteRecord.isPending}
-            onEdit={(id, row) => openEdit("doctors", id, row)}
-            onToggleActive={(id, active) =>
-              toggleActiveRecord.mutate({ target: "doctors", id, active })
-            }
-            onDelete={(id, name) =>
-              setPermanentDelete({ open: true, target: "doctors", id, name })
-            }
-            onToggleRow={(row, selected) =>
-              toggleSelected("doctors", row.id, selected)
-            }
-            onTogglePage={(rows, selected) =>
-              togglePageSelected("doctors", rows, selected)
-            }
-          />
+            <DoctorTable
+              rows={filteredDoctors}
+              selectedKeys={selectedRows.doctors}
+              isTogglePending={toggleActiveRecord.isPending}
+              isDeletePending={permanentlyDeleteRecord.isPending}
+              onEdit={(id, row) => openEdit("doctors", id, row)}
+              onToggleActive={(id, active) =>
+                toggleActiveRecord.mutate({ target: "doctors", id, active })
+              }
+              onDelete={(id, name) =>
+                setPermanentDelete({ open: true, target: "doctors", id, name })
+              }
+              onToggleRow={(row, selected) =>
+                toggleSelected("doctors", row.id, selected)
+              }
+              onTogglePage={(rows, selected) =>
+                togglePageSelected("doctors", rows, selected)
+              }
+            />
         ) : null}
 
         {activeTab === "employees" ? (
-          <EmployeeTable
-            rows={filteredEmployees}
-            selectedKeys={selectedRows.employees}
-            isTogglePending={toggleActiveRecord.isPending}
-            isDeletePending={permanentlyDeleteRecord.isPending}
-            onEdit={(id, row) => openEdit("employees", id, row)}
-            onToggleActive={(id, active) =>
-              toggleActiveRecord.mutate({ target: "employees", id, active })
-            }
-            onDelete={(id, name) =>
-              setPermanentDelete({ open: true, target: "employees", id, name })
-            }
-            onToggleRow={(row, selected) =>
-              toggleSelected("employees", row.id, selected)
-            }
-            onTogglePage={(rows, selected) =>
-              togglePageSelected("employees", rows, selected)
-            }
-          />
+            <EmployeeTable
+              rows={filteredEmployees}
+              selectedKeys={selectedRows.employees}
+              isTogglePending={toggleActiveRecord.isPending}
+              isDeletePending={permanentlyDeleteRecord.isPending}
+              onEdit={(id, row) => openEdit("employees", id, row)}
+              onToggleActive={(id, active) =>
+                toggleActiveRecord.mutate({ target: "employees", id, active })
+              }
+              onDelete={(id, name) =>
+                setPermanentDelete({ open: true, target: "employees", id, name })
+              }
+              onToggleRow={(row, selected) =>
+                toggleSelected("employees", row.id, selected)
+              }
+              onTogglePage={(rows, selected) =>
+                togglePageSelected("employees", rows, selected)
+              }
+            />
         ) : null}
       </LayerCard>
 
