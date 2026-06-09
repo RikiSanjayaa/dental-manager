@@ -44,6 +44,7 @@ class User(SQLModel, table=True):
 class Employee(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
+    attendance_id: Optional[str] = Field(default=None, index=True)
     position: Optional[str] = None
     join_date: Optional[date] = None
     base_salary: float = 0
@@ -94,6 +95,17 @@ class PayrollRule(SQLModel, table=True):
     pph21_rate: float = 0.05
     sunday_multiplier: float = 6 / 7
     double_shift_multiplier: float = 1.0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AttendanceRule(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    is_default: bool = False
+    timezone1_start: time = time(8, 0)
+    timezone1_end: time = time(16, 0)
+    timezone2_start: time = time(14, 0)
+    timezone2_end: time = time(21, 0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -181,6 +193,7 @@ class AttendanceRecord(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     period: str = Field(index=True)
     employee_id: Optional[int] = Field(default=None, foreign_key="employee.id", index=True)
+    attendance_id_snapshot: Optional[str] = Field(default=None, index=True)
     employee_name_snapshot: str = Field(index=True)
     work_date: date = Field(index=True)
     timezone1_in: Optional[time] = None
@@ -190,8 +203,11 @@ class AttendanceRecord(SQLModel, table=True):
     late_minutes: int = 0
     early_leave_minutes: int = 0
     absent_minutes: int = 0
+    is_absent: bool = False
+    total_minutes: int = 0
     overtime_minutes: int = 0
     is_sunday: bool = False
+    is_holiday: bool = False
     is_double_shift: bool = False
     status_note: Optional[str] = None
     needs_review: bool = False

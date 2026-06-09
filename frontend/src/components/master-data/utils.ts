@@ -74,6 +74,7 @@ export function emptyEditorValues(
   }
   return {
     name: "",
+    attendance_id: "",
     position: "",
     join_date: "",
     base_salary: "0",
@@ -121,6 +122,7 @@ export function editorValuesFromRow(
   const item = row as Employee;
   return {
     name: item.name,
+    attendance_id: item.attendance_id ?? "",
     position: item.position ?? "",
     join_date: "",
     base_salary: String(item.base_salary ?? 0),
@@ -169,6 +171,7 @@ export function editorPayload(
   }
   return {
     name: values.name.trim(),
+    attendance_id: nullableText(values.attendance_id),
     position: nullableText(values.position),
     join_date: nullableText(values.join_date),
     base_salary: Number(values.base_salary || 0),

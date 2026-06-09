@@ -5,8 +5,9 @@ from typing import Any
 from openpyxl import load_workbook
 from sqlmodel import Session, select
 
-from app.calculations import calculate_doctor_transaction
+from app.calculations import calculate_attendance_record, calculate_doctor_transaction
 from app.models import (
+    AttendanceRule,
     AttendanceRecord,
     Doctor,
     DoctorFeeRule,
@@ -74,6 +75,72 @@ def header_map(sheet, header_row: int = 1) -> dict[str, int]:
         if value:
             headers[normalize_text(value).replace(" ", "_")] = col
     return headers
+
+
+def find_header_row(sheet, required: set[str], max_scan: int = 10) -> int:
+    for row in range(1, min(sheet.max_row, max_scan) + 1):
+        headers = set(header_map(sheet, row).keys())
+        if required.issubset(headers):
+            return row
+    return 1
+
+
+def attendance_header_map(sheet, header_row: int) -> dict[str, int]:
+    headers = header_map(sheet, header_row)
+    for col in range(1, sheet.max_column + 1):
+        parent = normalize_text(sheet.cell(header_row, col).value).replace(" ", "_")
+        child = normalize_text(sheet.cell(header_row + 1, col).value).replace(" ", "_")
+        if parent in {"timezone_i", "timezone_1"} and child in {"masuk", "keluar"}:
+            headers[f"timezone_i_{child}"] = col
+        if parent in {"timezone_ii", "timezone_2"} and child in {"masuk", "keluar"}:
+            headers[f"timezone_ii_{child}"] = col
+    return headers
+
+
+def first_by_header(
+    formula_ws,
+    values_ws,
+    headers: dict[str, int],
+    row: int,
+    keys: list[str],
+    errors: list[dict[str, Any]],
+    *,
+    required: bool = False,
+    field: str | None = None,
+) -> Any:
+    for key in keys:
+        if key in headers:
+            return get_by_header(formula_ws, values_ws, headers, row, key, errors, required=required)
+    if required:
+        errors.append({"sheet": formula_ws.title, "row": row, "field": field or keys[0], "message": "Kolom wajib tidak ditemukan."})
+    return None
+
+
+def truthy_cell(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = normalize_text(value)
+    return text in {"1", "true", "yes", "ya", "y", "libur", "holiday", "merah"}
+
+
+def falsey_cell(value: Any) -> bool:
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, (int, float)):
+        return value == 0
+    text = normalize_text(value)
+    return text in {"0", "false", "no", "tidak", "n", "masuk", "kerja", "bukan_libur", "hari_kerja"}
+
+
+def holiday_from_cell(value: Any, work_date) -> bool:
+    if value not in (None, ""):
+        if truthy_cell(value):
+            return True
+        if falsey_cell(value):
+            return False
+    return work_date.weekday() == 6
 
 
 def get_by_header(formula_ws, values_ws, headers: dict[str, int], row: int, key: str, errors: list[dict[str, Any]], *, required: bool = False) -> Any:
@@ -188,6 +255,7 @@ def preview_employees(path: str | Path) -> dict[str, Any]:
             {
                 "row": row,
                 "name": str(name).strip(),
+                "attendance_id": str(get_by_header(ws, values_ws, headers, row, "attendance_id", errors) or "").strip() or None,
                 "position": str(get_by_header(ws, values_ws, headers, row, "position", errors) or "").strip() or None,
                 "join_date": str(get_by_header(ws, values_ws, headers, row, "join_date", errors) or "").strip() or None,
                 "base_salary": base_salary,
@@ -207,35 +275,64 @@ def preview_attendance(path: str | Path) -> dict[str, Any]:
     values_wb = load_workbook(path, data_only=True)
     ws = get_sheet(formula_wb, "Attendance")
     values_ws = values_wb[ws.title]
-    headers = header_map(values_ws)
+    header_row = find_header_row(values_ws, {"id", "nama", "tgl"})
+    headers = attendance_header_map(values_ws, header_row)
     errors: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
-    for row in range(2, ws.max_row + 1):
+    seen: set[tuple[str, str]] = set()
+    duplicate_count = 0
+    for row in range(header_row + 1, ws.max_row + 1):
         before = len(errors)
-        name = get_by_header(ws, values_ws, headers, row, "employee_name", errors, required=True)
-        work_date = parse_date(get_by_header(ws, values_ws, headers, row, "work_date", errors, required=True))
+        attendance_id = first_by_header(ws, values_ws, headers, row, ["id", "attendance_id"], errors, field="attendance_id")
+        name = first_by_header(ws, values_ws, headers, row, ["nama", "employee_name", "name"], errors, required=True, field="employee_name")
+        work_date = parse_date(first_by_header(ws, values_ws, headers, row, ["tgl", "work_date", "tanggal"], errors, required=True, field="work_date"))
+        if not attendance_id and not name and not work_date:
+            continue
         if not name or not work_date:
             continue
+        attendance_id_text = str(attendance_id or "").strip() or None
+        key = (attendance_id_text or normalize_text(name), work_date.isoformat())
+        duplicate = key in seen
+        if duplicate:
+            duplicate_count += 1
+        seen.add(key)
+        timezone1_in = first_by_header(ws, values_ws, headers, row, ["timezone_i_masuk", "timezone_1_masuk", "timezone1_in"], errors)
+        timezone1_out = first_by_header(ws, values_ws, headers, row, ["timezone_i_keluar", "timezone_1_keluar", "timezone1_out"], errors)
+        timezone2_in = first_by_header(ws, values_ws, headers, row, ["timezone_ii_masuk", "timezone_2_masuk", "timezone2_in"], errors)
+        timezone2_out = first_by_header(ws, values_ws, headers, row, ["timezone_ii_keluar", "timezone_2_keluar", "timezone2_out"], errors)
+        is_holiday = holiday_from_cell(
+            first_by_header(ws, values_ws, headers, row, ["libur", "hari_libur", "tanggal_merah", "holiday"], errors),
+            work_date,
+        )
+        note = first_by_header(ws, values_ws, headers, row, ["catatan", "status_note", "note"], errors)
         rows.append(
             {
                 "row": row,
+                "attendance_id": attendance_id_text,
                 "employee_name": str(name).strip(),
-                "period": str(get_by_header(ws, values_ws, headers, row, "period", errors) or parse_period(work_date)).strip(),
+                "period": str(first_by_header(ws, values_ws, headers, row, ["period"], errors) or parse_period(work_date)).strip(),
                 "work_date": work_date.isoformat(),
-                "timezone1_in": str(get_by_header(ws, values_ws, headers, row, "timezone1_in", errors) or "") or None,
-                "timezone1_out": str(get_by_header(ws, values_ws, headers, row, "timezone1_out", errors) or "") or None,
-                "timezone2_in": str(get_by_header(ws, values_ws, headers, row, "timezone2_in", errors) or "") or None,
-                "timezone2_out": str(get_by_header(ws, values_ws, headers, row, "timezone2_out", errors) or "") or None,
-                "late_minutes": int(money_by_header(ws, values_ws, headers, row, "late_minutes", errors, default=0) or 0),
-                "early_leave_minutes": int(money_by_header(ws, values_ws, headers, row, "early_leave_minutes", errors, default=0) or 0),
-                "absent_minutes": int(money_by_header(ws, values_ws, headers, row, "absent_minutes", errors, default=0) or 0),
-                "status_note": str(get_by_header(ws, values_ws, headers, row, "status_note", errors) or "").strip() or None,
+                "timezone1_in": str(timezone1_in or "") or None,
+                "timezone1_out": str(timezone1_out or "") or None,
+                "timezone2_in": str(timezone2_in or "") or None,
+                "timezone2_out": str(timezone2_out or "") or None,
+                "is_holiday": is_holiday,
+                "status_note": str(note or "").strip() or None,
                 "employee_found": True,
+                "duplicate": duplicate,
                 "valid": len(errors) == before,
             }
         )
     valid = [item for item in rows if item.get("valid", True)]
-    return {"kind": "attendance", "valid_rows": len(valid), "invalid_rows": len(rows) - len(valid) + len(errors), "warnings": [], "errors": errors, "summary": {"attendance": len(valid)}, "data": {"attendance": valid}}
+    return {
+        "kind": "attendance",
+        "valid_rows": len(valid),
+        "invalid_rows": len(rows) - len(valid) + len(errors),
+        "warnings": [],
+        "errors": errors,
+        "summary": {"attendance": len(valid), "duplicate_in_file": duplicate_count},
+        "data": {"attendance": valid},
+    }
 
 
 def preview_doctor_transactions(path: str | Path) -> dict[str, Any]:
@@ -325,6 +422,7 @@ def commit_employees(session: Session, employees: list[dict[str, Any]]) -> dict[
         else:
             updated += 1
         employee.position = item["position"]
+        employee.attendance_id = item.get("attendance_id") or employee.attendance_id
         employee.join_date = parse_date(item["join_date"])
         employee.base_salary = item["base_salary"]
         employee.working_days = item["working_days"]
@@ -332,38 +430,62 @@ def commit_employees(session: Session, employees: list[dict[str, Any]]) -> dict[
         employee.account_name = item["account_name"]
         employee.account_number = item["account_number"]
         session.add(employee)
+        session.flush()
+        if not employee.attendance_id:
+            employee.attendance_id = str(employee.id)
+            session.add(employee)
     session.commit()
     return {"created": created, "updated": updated}
 
 
 def commit_attendance(session: Session, attendance_rows: list[dict[str, Any]]) -> dict[str, int]:
     created = 0
-    employee_map = {normalize_text(employee.name): employee for employee in session.exec(select(Employee)).all()}
+    updated = 0
+    employees = session.exec(select(Employee)).all()
+    employee_name_map = {normalize_text(employee.name): employee for employee in employees}
+    employee_id_map = {
+        str(employee.attendance_id or employee.id).strip(): employee
+        for employee in employees
+        if employee.attendance_id or employee.id
+    }
+    rule = session.exec(select(AttendanceRule).where(AttendanceRule.is_default == True)).first()  # noqa: E712
+    rule = rule or AttendanceRule(name="Fallback", is_default=True)
     for item in attendance_rows:
         work_date = parse_date(item["work_date"])
         if not work_date:
             continue
-        employee = employee_map.get(normalize_text(item["employee_name"]))
-        record = AttendanceRecord(
-            period=item["period"],
-            employee_id=employee.id if employee else None,
-            employee_name_snapshot=item["employee_name"],
-            work_date=work_date,
-            timezone1_in=parse_time(item["timezone1_in"]),
-            timezone1_out=parse_time(item["timezone1_out"]),
-            timezone2_in=parse_time(item["timezone2_in"]),
-            timezone2_out=parse_time(item["timezone2_out"]),
-            late_minutes=item["late_minutes"],
-            early_leave_minutes=item["early_leave_minutes"],
-            absent_minutes=item["absent_minutes"],
-            is_sunday=work_date.weekday() == 6,
-            needs_review=employee is None,
-            status_note=item["status_note"],
+        attendance_id = str(item.get("attendance_id") or "").strip() or None
+        employee = (employee_id_map.get(attendance_id) if attendance_id else None) or employee_name_map.get(normalize_text(item["employee_name"]))
+        statement = select(AttendanceRecord).where(
+            AttendanceRecord.period == item["period"],
+            AttendanceRecord.work_date == work_date,
         )
+        if employee:
+            statement = statement.where(AttendanceRecord.employee_id == employee.id)
+        elif attendance_id:
+            statement = statement.where(AttendanceRecord.attendance_id_snapshot == attendance_id)
+        else:
+            statement = statement.where(AttendanceRecord.employee_name_snapshot == item["employee_name"])
+        record = session.exec(statement).first()
+        if record:
+            updated += 1
+        else:
+            record = AttendanceRecord(period=item["period"], work_date=work_date, employee_name_snapshot=item["employee_name"])
+            created += 1
+        record.employee_id = employee.id if employee else None
+        record.attendance_id_snapshot = (attendance_id or employee.attendance_id or str(employee.id)) if employee else attendance_id
+        record.employee_name_snapshot = item["employee_name"]
+        record.timezone1_in = parse_time(item["timezone1_in"])
+        record.timezone1_out = parse_time(item["timezone1_out"])
+        record.timezone2_in = parse_time(item["timezone2_in"])
+        record.timezone2_out = parse_time(item["timezone2_out"])
+        record.is_holiday = bool(item.get("is_holiday"))
+        record.needs_review = employee is None
+        record.status_note = item["status_note"] or (None if employee else "Karyawan belum ditemukan di master.")
+        calculate_attendance_record(record, rule)
         session.add(record)
-        created += 1
     session.commit()
-    return {"created": created, "updated": 0}
+    return {"created": created, "updated": updated}
 
 
 def commit_doctor_transactions(session: Session, preview: dict[str, Any]) -> dict[str, int]:
@@ -426,5 +548,3 @@ def upsert_doctor(session: Session, item: dict[str, Any]) -> Doctor:
     session.add(doctor)
     session.flush()
     return doctor
-
-

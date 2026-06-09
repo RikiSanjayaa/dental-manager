@@ -69,6 +69,10 @@ export function DataTable<T>({
     align === "right" ? "text-right" : align === "center" ? "text-center" : undefined;
   const computedMinWidth =
     minTableWidth ?? Math.max(920, columns.length * 150 + (selectable ? 52 : 0));
+  const stickyLeftStyle = (column: Column<T>) =>
+    selectable && stickyColumn(column) === "left"
+      ? { left: 40 }
+      : undefined;
 
   return (
     <div className="space-y-3">
@@ -90,6 +94,7 @@ export function DataTable<T>({
                 <Table.Head
                   key={column.key}
                   sticky={stickyColumn(column)}
+                  style={stickyLeftStyle(column)}
                   className={`${alignClass(column.align) ?? ""} whitespace-nowrap text-xs`}
                 >
                   {column.header || (column.key === "actions" ? <span className="sr-only">Aksi</span> : null)}
@@ -128,6 +133,7 @@ export function DataTable<T>({
                       <Table.Cell
                         key={column.key}
                         sticky={stickyColumn(column)}
+                        style={stickyLeftStyle(column)}
                         className={`${alignClass(column.align) ?? ""} whitespace-nowrap`}
                       >
                         {column.render(row)}

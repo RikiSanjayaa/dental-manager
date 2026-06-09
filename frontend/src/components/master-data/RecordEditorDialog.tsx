@@ -286,6 +286,18 @@ export function RecordEditorDialog({
               {/* ── Employee fields ── */}
               {editor.target === "employees" ? (
                 <>
+                  <Field
+                    label="ID Absensi"
+                    labelTooltip="ID dari mesin fingerprint atau file absensi. Dipakai untuk mencocokkan import absensi ke karyawan."
+                    required={false}
+                  >
+                    <Input
+                      value={v.attendance_id ?? ""}
+                      onChange={(event) =>
+                        onFieldChange("attendance_id", event.target.value)
+                      }
+                    />
+                  </Field>
                   <Field label="Jabatan" required={false}>
                     <Input
                       value={v.position ?? ""}

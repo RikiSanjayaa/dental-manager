@@ -81,6 +81,7 @@ export function EmployeeTable({
     <DataTable
       rows={rows}
       columns={[
+        { key: "attendance_id", header: "ID Absensi", render: (row) => row.attendance_id || String(row.id) },
         { key: "name", header: "Nama", render: (row) => row.name },
         {
           key: "position",

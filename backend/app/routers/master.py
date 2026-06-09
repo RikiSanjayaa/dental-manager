@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any, TypeVar
 
 from pathlib import Path
@@ -13,7 +13,7 @@ from sqlmodel import SQLModel, select
 from app.dependencies import AdminUser, CurrentUser, SessionDep
 from app.config import get_settings
 from app.importers import commit_doctors, commit_employees, commit_treatments, preview_doctors, preview_employees, preview_treatments
-from app.models import Doctor, DoctorFeeRule, Employee, ImportFile, ImportKind, ImportStatus, PayrollRule, Treatment, User, UserRole
+from app.models import AttendanceRule, Doctor, DoctorFeeRule, Employee, ImportFile, ImportKind, ImportStatus, PayrollRule, Treatment, User, UserRole
 from app.security import hash_password
 from app.utils import normalize_text
 
@@ -46,6 +46,7 @@ class UserUpdate(BaseModel):
 
 class EmployeeInput(BaseModel):
     name: str
+    attendance_id: str | None = None
     position: str | None = None
     join_date: str | None = None
     base_salary: float = 0
@@ -99,6 +100,15 @@ class DoctorFeeRuleInput(BaseModel):
     ortho_fee_rate: float = 0.70
     tax_rate: float = 0.025
     default_deduction: float = 0
+
+
+class AttendanceRuleInput(BaseModel):
+    name: str
+    is_default: bool = False
+    timezone1_start: time = time(8, 0)
+    timezone1_end: time = time(16, 0)
+    timezone2_start: time = time(14, 0)
+    timezone2_end: time = time(21, 0)
 
 
 def _list(session: SessionDep, model: type[ModelT], search: str | None = None) -> list[ModelT]:
@@ -171,6 +181,11 @@ def create_employee(payload: EmployeeInput, session: SessionDep, _: AdminUser) -
     session.add(item)
     session.commit()
     session.refresh(item)
+    if not item.attendance_id:
+        item.attendance_id = str(item.id)
+        session.add(item)
+        session.commit()
+        session.refresh(item)
     return item
 
 
@@ -182,6 +197,11 @@ def update_employee(item_id: int, payload: EmployeeInput, session: SessionDep, _
     session.add(item)
     session.commit()
     session.refresh(item)
+    if not item.attendance_id:
+        item.attendance_id = str(item.id)
+        session.add(item)
+        session.commit()
+        session.refresh(item)
     return item
 
 
@@ -547,6 +567,26 @@ def create_payroll_rule(payload: PayrollRuleInput, session: SessionDep, _: Admin
             rule.is_default = False
             session.add(rule)
     item = PayrollRule(**payload.model_dump())
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+@router.get("/settings/attendance-rules", response_model=list[AttendanceRule])
+def list_attendance_rules(session: SessionDep, _: AdminUser) -> list[AttendanceRule]:
+    return session.exec(select(AttendanceRule)).all()
+
+
+@router.patch("/settings/attendance-rules/{item_id}", response_model=AttendanceRule)
+def update_attendance_rule(item_id: int, payload: AttendanceRuleInput, session: SessionDep, _: AdminUser) -> AttendanceRule:
+    item = _get_or_404(session, AttendanceRule, item_id)
+    if payload.is_default:
+        for rule in session.exec(select(AttendanceRule)).all():
+            rule.is_default = False
+            session.add(rule)
+    for field, value in payload.model_dump().items():
+        setattr(item, field, value)
     session.add(item)
     session.commit()
     session.refresh(item)

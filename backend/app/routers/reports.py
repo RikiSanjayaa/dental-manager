@@ -252,11 +252,11 @@ def export_payroll_slip(period: str, employee_id: int, session: SessionDep, user
 
 
 @router.get("/templates/{template_name}.xlsx")
-def export_template(template_name: str) -> StreamingResponse:
+def export_template(template_name: str, session: SessionDep) -> StreamingResponse:
     allowed = {"treatments", "doctors", "employees", "attendance", "doctor-transactions"}
     if template_name not in allowed:
         raise HTTPException(status_code=404, detail="Template tidak ditemukan.")
-    stream = template_xlsx(template_name)
+    stream = template_xlsx(template_name, session)
     return StreamingResponse(
         stream,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

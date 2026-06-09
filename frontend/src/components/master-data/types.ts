@@ -3,6 +3,7 @@ export type MasterTarget = "treatments" | "doctors" | "employees";
 export type Employee = {
   id: number;
   name: string;
+  attendance_id?: string;
   position?: string;
   join_date?: string;
   base_salary: number;
@@ -50,6 +51,7 @@ export type PreviewRow = {
   name?: string;
   category?: string;
   position?: string;
+  attendance_id?: string;
   bank_name?: string;
   account_number?: string;
   treatment_price?: number;

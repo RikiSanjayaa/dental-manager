@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import datetime, time
 
 from sqlmodel import Session, delete, select
 
 from app.models import (
     AttendanceRecord,
+    AttendanceRule,
     Doctor,
     DoctorFeeRule,
     DoctorPeriodSummary,
@@ -15,6 +16,92 @@ from app.models import (
     Treatment,
 )
 from app.utils import round_money
+
+
+def minutes_of_day(value: time | None) -> int | None:
+    if value is None:
+        return None
+    return value.hour * 60 + value.minute
+
+
+def positive_diff(later: time | None, earlier: time | None) -> int:
+    later_minutes = minutes_of_day(later)
+    earlier_minutes = minutes_of_day(earlier)
+    if later_minutes is None or earlier_minutes is None:
+        return 0
+    return max(later_minutes - earlier_minutes, 0)
+
+
+def shift_penalty(
+    actual_in: time | None,
+    actual_out: time | None,
+    scheduled_in: time,
+    scheduled_out: time,
+) -> tuple[int, int, int]:
+    if actual_in is None and actual_out is None:
+        return 0, 0, 0
+    late = positive_diff(actual_in, scheduled_in)
+    early = positive_diff(scheduled_out, actual_out)
+    return late, early, 0
+
+
+def shift_overtime(actual_out: time | None, scheduled_out: time) -> int:
+    return positive_diff(actual_out, scheduled_out)
+
+
+def shift_duration(actual_in: time | None, actual_out: time | None) -> int:
+    return positive_diff(actual_out, actual_in)
+
+
+def calculate_attendance_record(record: AttendanceRecord, rule: AttendanceRule) -> AttendanceRecord:
+    has_any_time = any(
+        [record.timezone1_in, record.timezone1_out, record.timezone2_in, record.timezone2_out]
+    )
+    is_sunday = record.work_date.weekday() == 6
+    is_day_off = record.is_holiday
+    if not has_any_time:
+        record.late_minutes = 0
+        record.early_leave_minutes = 0
+        record.absent_minutes = 0 if is_day_off else positive_diff(rule.timezone1_end, rule.timezone1_start)
+        record.is_absent = not is_day_off
+        record.total_minutes = 0
+        record.overtime_minutes = 0
+        record.is_sunday = is_sunday
+        record.is_double_shift = False
+        return record
+
+    if is_day_off:
+        record.late_minutes = 0
+        record.early_leave_minutes = 0
+        record.absent_minutes = 0
+        record.is_absent = False
+        record.total_minutes = 0
+        record.overtime_minutes = shift_duration(record.timezone1_in, record.timezone1_out) + shift_duration(record.timezone2_in, record.timezone2_out)
+        record.is_sunday = is_sunday
+        record.is_double_shift = bool(record.timezone1_in or record.timezone1_out) and bool(record.timezone2_in or record.timezone2_out)
+        return record
+
+    late1, early1, absent1 = shift_penalty(
+        record.timezone1_in,
+        record.timezone1_out,
+        rule.timezone1_start,
+        rule.timezone1_end,
+    )
+    late2, early2, absent2 = shift_penalty(
+        record.timezone2_in,
+        record.timezone2_out,
+        rule.timezone2_start,
+        rule.timezone2_end,
+    )
+    record.late_minutes = late1 + late2
+    record.early_leave_minutes = early1 + early2
+    record.absent_minutes = absent1 + absent2
+    record.is_absent = False
+    record.total_minutes = record.late_minutes + record.early_leave_minutes
+    record.overtime_minutes = shift_overtime(record.timezone1_out, rule.timezone1_end) + shift_overtime(record.timezone2_out, rule.timezone2_end)
+    record.is_sunday = is_sunday
+    record.is_double_shift = bool(record.timezone1_in or record.timezone1_out) and bool(record.timezone2_in or record.timezone2_out)
+    return record
 
 
 def calculate_doctor_transaction(

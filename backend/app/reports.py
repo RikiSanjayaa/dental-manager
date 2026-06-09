@@ -594,7 +594,7 @@ def payroll_slip_pdf(session: Session, period: str, employee_id: int) -> BytesIO
     return stream
 
 
-def template_xlsx(template_name: str) -> BytesIO:
+def template_xlsx(template_name: str, session: Session | None = None) -> BytesIO:
     specs = {
         "treatments": {
             "sheet": "Treatments",
@@ -608,25 +608,23 @@ def template_xlsx(template_name: str) -> BytesIO:
         },
         "employees": {
             "sheet": "Employees",
-            "headers": ["name", "position", "join_date", "base_salary", "working_days", "bank_name", "account_name", "account_number"],
-            "sample": ["Nama Karyawan 1", "Supervisor", "2026-05-01", 2712250, 25, "BSI", "Nama Karyawan 1", "1234567890"],
+            "headers": ["attendance_id", "name", "position", "join_date", "base_salary", "working_days", "bank_name", "account_name", "account_number"],
+            "sample": ["1", "Nama Karyawan 1", "Supervisor", "2026-05-01", 2712250, 25, "BSI", "Nama Karyawan 1", "1234567890"],
         },
         "attendance": {
             "sheet": "Attendance",
             "headers": [
-                "period",
-                "employee_name",
-                "work_date",
-                "timezone1_in",
-                "timezone1_out",
-                "timezone2_in",
-                "timezone2_out",
-                "late_minutes",
-                "early_leave_minutes",
-                "absent_minutes",
-                "status_note",
+                "ID",
+                "Nama",
+                "Tgl",
+                "Timezone I Masuk",
+                "Timezone I Keluar",
+                "Timezone II Masuk",
+                "Timezone II Keluar",
+                "Libur",
+                "Catatan",
             ],
-            "sample": ["2026-05", "Nama Karyawan 1", "2026-05-02", "08:00", "16:00", "", "", 0, 0, 0, ""],
+            "sample": ["1", "Nama Karyawan 1", "2026-05-02", "08:00", "16:00", "", "", "", ""],
         },
         "doctor-transactions": {
             "sheet": "DoctorTransactions",
@@ -660,6 +658,22 @@ def template_xlsx(template_name: str) -> BytesIO:
     notes.append(["Rule"])
     notes.append(["Jangan isi formula Excel. Isi value final saja. Formula tanpa cached value akan ditolak importer."])
     notes.append(["Header harus tetap sama seperti template."])
+    if template_name == "attendance":
+        notes.append(["Kolom Libur: isi ya/true/1/libur/merah untuk libur. Isi tidak/no/0/masuk/kerja agar hari Minggu tetap dianggap hari kerja biasa. Kosong: Minggu otomatis libur."])
+    if template_name == "attendance" and session:
+        notes.append([])
+        notes.append(["Daftar ID Absensi Karyawan"])
+        notes.append(["attendance_id", "name", "status"])
+        employees = session.exec(select(Employee).order_by(Employee.name)).all()
+        for employee in employees:
+            notes.append([
+                employee.attendance_id or str(employee.id or ""),
+                employee.name,
+                "aktif" if employee.is_active else "nonaktif",
+            ])
+        for column in notes.columns:
+            max_length = max(len(str(cell.value or "")) for cell in column)
+            notes.column_dimensions[column[0].column_letter].width = min(max(max_length + 2, 12), 36)
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)
