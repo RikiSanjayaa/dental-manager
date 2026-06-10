@@ -26,6 +26,10 @@ export type AttendanceRecord = {
   is_holiday: boolean;
   status_note?: string | null;
   needs_review: boolean;
+  protest_note?: string | null;
+  protest_by_user_id?: number | null;
+  protest_by_name?: string | null;
+  protested_at?: string | null;
 };
 
 export type AttendanceValues = {

@@ -8,6 +8,7 @@ import {
   ClipboardList,
   ClipboardPlus,
   FileSpreadsheet,
+  History,
   LayoutDashboard,
   LogOut,
   Moon,
@@ -16,26 +17,32 @@ import {
   Stethoscope,
   Sun,
   Users,
+  UserCog,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { setToken, type UserMe } from "../lib/api";
+import { api, setToken, type UserMe } from "../lib/api";
+import { isAdministrator, roleLabel } from "../lib/auth";
 import { brandName } from "../lib/brand";
 
 type Props = {
   user: UserMe;
 };
 
-const nav: Array<{ to: string; label: string; icon: LucideIcon }> = [
+const nav: Array<{ to: string; label: string; icon: LucideIcon; adminOnly?: boolean; operatorOnly?: boolean }> = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/treatment-history", label: "Riwayat Perawatan", icon: ClipboardPlus },
-  { to: "/doctor-fees", label: "Fee Dokter", icon: Stethoscope },
+  { to: "/doctor-fees", label: "Fee Dokter", icon: Stethoscope, adminOnly: true },
   { to: "/attendance", label: "Absensi", icon: ClipboardList },
-  { to: "/payroll", label: "Payroll", icon: ReceiptText },
-  { to: "/master-data", label: "Master Data", icon: Users },
-  { to: "/reports", label: "Laporan", icon: FileSpreadsheet },
-  { to: "/settings", label: "Pengaturan", icon: Settings },
+  { to: "/payroll", label: "Payroll", icon: ReceiptText, adminOnly: true },
+  { to: "/my-payroll", label: "Payroll Saya", icon: ReceiptText, operatorOnly: true },
+  { to: "/master-data", label: "Master Data", icon: Users, adminOnly: true },
+  { to: "/reports", label: "Laporan", icon: FileSpreadsheet, adminOnly: true },
+  { to: "/users", label: "User Management", icon: UserCog, adminOnly: true },
+  { to: "/audit-logs", label: "Audit Logs", icon: History, adminOnly: true },
+  { to: "/my-audit-logs", label: "Audit Akun", icon: History, operatorOnly: true },
+  { to: "/settings", label: "Pengaturan", icon: Settings, adminOnly: true },
 ];
 
 const SIDEBAR_WIDTH = 260;
@@ -86,6 +93,11 @@ function AppShellFrame({ user }: Props) {
   const activeNav = nav.find((item) =>
     item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to),
   );
+  const visibleNav = nav.filter((item) => {
+    if (item.adminOnly) return isAdministrator(user);
+    if (item.operatorOnly) return !isAdministrator(user);
+    return true;
+  });
 
   return (
     <>
@@ -113,7 +125,7 @@ function AppShellFrame({ user }: Props) {
         <Sidebar.Content>
           <Sidebar.Group>
             <Sidebar.Menu className="app-sidebar-menu">
-              {nav.map((item) => {
+              {visibleNav.map((item) => {
                 const active =
                   item.to === "/"
                     ? location.pathname === "/"
@@ -154,7 +166,12 @@ function AppShellFrame({ user }: Props) {
                     }
                   : undefined
               }
-              onClick={() => {
+              onClick={async () => {
+                try {
+                  await api("/auth/logout", { method: "POST" });
+                } catch {
+                  // Token removal is still the source of truth for local logout.
+                }
                 setToken(null);
                 navigate("/login");
               }}
@@ -214,7 +231,7 @@ function AppShellFrame({ user }: Props) {
                 >
                   {user.full_name}
                 </Text>
-                <Badge variant="info">{user.role}</Badge>
+                <Badge variant="info">{roleLabel(user.role)}</Badge>
               </div>
               <span
                 className="shrink-0 bg-kumo-brand text-xs font-semibold text-white"
@@ -237,7 +254,7 @@ function AppShellFrame({ user }: Props) {
           className="mx-auto flex w-full flex-col gap-5 px-6 pt-8 pb-6"
           style={{ maxWidth: 1280 }}
         >
-          <Outlet />
+          <Outlet context={{ user }} />
           <div aria-hidden="true" style={{ height: 16, flex: "0 0 16px" }} />
         </div>
       </main>

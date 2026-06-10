@@ -1,14 +1,16 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Banner } from "@cloudflare/kumo/components/banner";
 import { Button, LinkButton } from "@cloudflare/kumo/components/button";
+import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
-import { Input } from "@cloudflare/kumo/components/input";
+import { Field } from "@cloudflare/kumo/components/field";
+import { Input, Textarea } from "@cloudflare/kumo/components/input";
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { Select } from "@cloudflare/kumo/components/select";
 import { Text } from "@cloudflare/kumo/components/text";
 import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, FileDown, FileUp, MoreHorizontal, Pencil, Plus, Search, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, FileDown, FileUp, MessageSquareWarning, MoreHorizontal, Pencil, Plus, Search, Trash2, XCircle } from "lucide-react";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { AttendanceEditorDialog } from "../components/attendance/AttendanceEditorDialog";
@@ -16,9 +18,11 @@ import { AttendanceImportPreviewDialog } from "../components/attendance/Attendan
 import type { AttendancePreview, AttendanceRecord, EditorSession, Employee, ImportSession } from "../components/attendance/types";
 import { attendancePayload, emptyAttendanceValues, includesText, valuesFromAttendance } from "../components/attendance/utils";
 import { ConfirmDeleteDialog } from "../components/ConfirmDeleteDialog";
+import type { Column } from "../components/DataTable";
 import { DataTable } from "../components/DataTable";
 import { DatePickerPopover } from "../components/DatePickerPopover";
 import { api } from "../lib/api";
+import { isAdministrator, useCurrentUser } from "../lib/auth";
 
 function statusBadge(needsReview: boolean) {
   return needsReview ? <Badge variant="error">review</Badge> : <Badge variant="success">ok</Badge>;
@@ -81,6 +85,8 @@ function isSunday(value: string) {
 
 type AttendanceHoliday = { id: number; holiday_date: string; name?: string | null; is_holiday: boolean };
 export function AttendancePage() {
+  const user = useCurrentUser();
+  const canManageAttendance = isAdministrator(user);
   const queryClient = useQueryClient();
   const toasts = useKumoToastManager();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -103,6 +109,8 @@ export function AttendancePage() {
     values: emptyAttendanceValues(period),
   });
   const [importSession, setImportSession] = useState<ImportSession>({ open: false });
+  const [protestTarget, setProtestTarget] = useState<AttendanceRecord | null>(null);
+  const [protestReason, setProtestReason] = useState("");
 
   const { data: records } = useQuery({
     queryKey: ["attendance", period],
@@ -244,6 +252,26 @@ export function AttendancePage() {
       setImportSession((current) => ({ ...current, error: error instanceof Error ? error.message : "Commit import gagal." })),
   });
 
+  const protestAttendance = useMutation({
+    mutationFn: ({ row, reason }: { row: AttendanceRecord; reason: string }) =>
+      api<AttendanceRecord>(`/attendance-records/${row.id}/protest`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      }),
+    onSuccess: async () => {
+      toasts.add({ title: "Protes absensi dikirim", variant: "success" });
+      setProtestTarget(null);
+      setProtestReason("");
+      await queryClient.invalidateQueries({ queryKey: ["attendance", period] });
+    },
+    onError: (error) =>
+      toasts.add({
+        title: "Protes absensi gagal dikirim",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      }),
+  });
+
   function openCreate() {
     const values = emptyAttendanceValues(period);
     values.is_holiday = isHolidayDate(values.work_date) ? "true" : "false";
@@ -291,6 +319,73 @@ export function AttendancePage() {
     });
   }
 
+  const actionColumns: Column<AttendanceRecord>[] = canManageAttendance ? [
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      sticky: "right",
+      render: (row) => (
+        <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenu.Trigger
+              render={
+                <Button variant="ghost" size="sm" shape="square" aria-label="Aksi absensi">
+                  <MoreHorizontal size={16} />
+                </Button>
+              }
+            />
+            <DropdownMenu.Content>
+              <DropdownMenu.Item icon={<Pencil className="mr-2" size={16} />} onClick={() => openEdit(row)}>
+                Edit
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                icon={<CheckCircle2 className="mr-2" size={16} />}
+                onClick={() => markReview.mutate({ row, needsReview: !row.needs_review })}
+              >
+                {row.needs_review ? "Tandai OK" : "Tandai review"}
+              </DropdownMenu.Item>
+              <DropdownMenu.Separator />
+              <DropdownMenu.Item
+                icon={<Trash2 className="mr-2" size={16} />}
+                variant="danger"
+                disabled={deleteAttendance.isPending}
+                onClick={() => setDeleteConfirm({
+                  open: true,
+                  ids: [row.id],
+                  title: "Hapus absensi?",
+                  description: `${row.employee_name_snapshot} pada ${row.work_date} akan dihapus permanen.`,
+                })}
+              >
+                Hapus
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu>
+        </div>
+      ),
+    },
+  ] : [
+    {
+      key: "protest",
+      header: "",
+      align: "right",
+      sticky: "right",
+      render: (row) => (
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<MessageSquareWarning size={16} />}
+          onClick={() => {
+            setProtestTarget(row);
+            setProtestReason(row.protest_note ?? "");
+          }}
+        >
+          Protes
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <>
       <div className="flex items-start justify-between gap-4 py-4">
@@ -300,16 +395,20 @@ export function AttendancePage() {
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Input className="w-40" aria-label="Periode absensi" type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
-          <LinkButton variant="secondary" href="/api/reports/templates/attendance.xlsx" download="attendance-template.xlsx" icon={<FileDown size={18} />}>
-            Format Import
-          </LinkButton>
-          <Button variant="secondary" icon={<Plus size={18} />} onClick={openCreate}>
-            Tambah Absensi
-          </Button>
-          <Button variant="primary" icon={<FileUp size={18} />} onClick={() => fileInputRef.current?.click()}>
-            Import
-          </Button>
-          <input ref={fileInputRef} className="hidden" type="file" accept=".xlsx,.xls" onChange={onImport} />
+          {canManageAttendance ? (
+            <>
+              <LinkButton variant="secondary" href="/api/reports/templates/attendance.xlsx" download="attendance-template.xlsx" icon={<FileDown size={18} />}>
+                Format Import
+              </LinkButton>
+              <Button variant="secondary" icon={<Plus size={18} />} onClick={openCreate}>
+                Tambah Absensi
+              </Button>
+              <Button variant="primary" icon={<FileUp size={18} />} onClick={() => fileInputRef.current?.click()}>
+                Import
+              </Button>
+              <input ref={fileInputRef} className="hidden" type="file" accept=".xlsx,.xls" onChange={onImport} />
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -391,7 +490,7 @@ export function AttendancePage() {
                 placeholder="Filter tanggal"
               />
             </div>
-            {selectedIds.size ? (
+            {canManageAttendance && selectedIds.size ? (
               <Button
                 variant="secondary-destructive"
                 icon={<Trash2 size={16} />}
@@ -409,7 +508,7 @@ export function AttendancePage() {
           pagination
           pageSize={25}
           minTableWidth={1180}
-          selectable
+          selectable={canManageAttendance}
           selectedKeys={selectedIds}
           onToggleRow={(row, selected) => toggleRow(row, selected)}
           onTogglePage={(rows, selected) => togglePage(rows, selected)}
@@ -426,51 +525,21 @@ export function AttendancePage() {
             { key: "total", header: "Total", align: "right", render: (row) => minuteValue(row.total_minutes, "info") },
             { key: "overtime", header: "Lembur", align: "right", render: (row) => minuteValue(row.overtime_minutes, "success") },
             { key: "status", header: "Status", render: (row) => statusBadge(row.needs_review) },
-            { key: "note", header: "Catatan", render: (row) => row.status_note ?? "-" },
             {
-              key: "actions",
-              header: "",
-              align: "right",
-              sticky: "right",
+              key: "note",
+              header: "Catatan",
               render: (row) => (
-                <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
-                  <DropdownMenu>
-                    <DropdownMenu.Trigger
-                      render={
-                        <Button variant="ghost" size="sm" shape="square" aria-label="Aksi absensi">
-                          <MoreHorizontal size={16} />
-                        </Button>
-                      }
-                    />
-                    <DropdownMenu.Content>
-                      <DropdownMenu.Item icon={<Pencil className="mr-2" size={16} />} onClick={() => openEdit(row)}>
-                        Edit
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Item
-                        icon={<CheckCircle2 className="mr-2" size={16} />}
-                        onClick={() => markReview.mutate({ row, needsReview: !row.needs_review })}
-                      >
-                        {row.needs_review ? "Tandai OK" : "Tandai review"}
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Separator />
-                      <DropdownMenu.Item
-                        icon={<Trash2 className="mr-2" size={16} />}
-                        variant="danger"
-                        disabled={deleteAttendance.isPending}
-                        onClick={() => setDeleteConfirm({
-                          open: true,
-                          ids: [row.id],
-                          title: "Hapus absensi?",
-                          description: `${row.employee_name_snapshot} pada ${row.work_date} akan dihapus permanen.`,
-                        })}
-                      >
-                        Hapus
-                      </DropdownMenu.Item>
-                    </DropdownMenu.Content>
-                  </DropdownMenu>
+                <div className="min-w-48">
+                  <p>{row.status_note ?? "-"}</p>
+                  {row.protest_note ? (
+                    <p className="mt-1 text-xs text-kumo-danger">
+                      Protes {row.protest_by_name ? `oleh ${row.protest_by_name}` : "operator"}: {row.protest_note}
+                    </p>
+                  ) : null}
                 </div>
               ),
             },
+            ...actionColumns,
           ]}
         />
       </LayerCard>
@@ -509,6 +578,40 @@ export function AttendancePage() {
         onOpenChange={(open) => setImportSession((current) => ({ ...current, open }))}
         onCommit={() => importSession.file ? commitImport.mutate(importSession.file) : null}
       />
+
+      <Dialog.Root open={Boolean(protestTarget)} onOpenChange={(open) => !open ? setProtestTarget(null) : undefined}>
+        <Dialog size="lg" style={{ width: "min(520px, calc(100vw - 24px))", maxHeight: "92vh", overflow: "hidden" }}>
+          <div className="border-b border-kumo-hairline px-6 py-4">
+            <Dialog.Title className="text-lg font-bold">Protes Absensi</Dialog.Title>
+            <Dialog.Description>
+              {protestTarget ? `${protestTarget.employee_name_snapshot} - ${protestTarget.work_date}` : "Kirim catatan koreksi absensi."}
+            </Dialog.Description>
+          </div>
+          <div className="px-6 py-4">
+            <Field label="Alasan Protes">
+              <Textarea
+                autoFocus
+                value={protestReason}
+                rows={5}
+                placeholder="Contoh: fingerprint masuk tidak terbaca, saya hadir pukul 08:04."
+                onChange={(event) => setProtestReason(event.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-kumo-hairline px-6 py-4">
+            <Dialog.Close render={(props) => <Button {...props} variant="secondary" type="button">Batal</Button>} />
+            <Button
+              variant="primary"
+              icon={<MessageSquareWarning size={18} />}
+              loading={protestAttendance.isPending}
+              disabled={!protestTarget || protestReason.trim().length < 5}
+              onClick={() => protestTarget ? protestAttendance.mutate({ row: protestTarget, reason: protestReason }) : null}
+            >
+              Kirim Protes
+            </Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
     </>
   );
 }

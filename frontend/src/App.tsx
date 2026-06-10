@@ -1,18 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/AppShell";
 import { api, getToken, type UserMe } from "./lib/api";
+import { isAdministrator } from "./lib/auth";
 import { brandName } from "./lib/brand";
+import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { AttendancePage } from "./pages/AttendancePage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DoctorFeesPage } from "./pages/DoctorFeesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MasterDataPage } from "./pages/MasterDataPage";
+import { MyPayrollPage } from "./pages/MyPayrollPage";
+import { OperatorDashboardPage } from "./pages/OperatorDashboardPage";
 import { PayrollPage } from "./pages/PayrollPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TreatmentHistoryPage } from "./pages/TreatmentHistoryPage";
+import { UsersPage } from "./pages/UsersPage";
 
 function Protected() {
   const token = getToken();
@@ -30,19 +36,61 @@ function Protected() {
   return <AppShell user={data} />;
 }
 
+function AdminRoute({ children }: { children: ReactNode }) {
+  const { data } = useQuery({
+    queryKey: ["me"],
+    queryFn: () => api<UserMe>("/auth/me"),
+    enabled: Boolean(getToken()),
+    retry: false,
+  });
+
+  if (!data) return null;
+  if (!isAdministrator(data)) return <Navigate to="/" replace />;
+  return children;
+}
+
+function OperatorRoute({ children }: { children: ReactNode }) {
+  const { data } = useQuery({
+    queryKey: ["me"],
+    queryFn: () => api<UserMe>("/auth/me"),
+    enabled: Boolean(getToken()),
+    retry: false,
+  });
+
+  if (!data) return null;
+  if (isAdministrator(data)) return <Navigate to="/" replace />;
+  return children;
+}
+
+function HomeRoute() {
+  const { data } = useQuery({
+    queryKey: ["me"],
+    queryFn: () => api<UserMe>("/auth/me"),
+    enabled: Boolean(getToken()),
+    retry: false,
+  });
+
+  if (!data) return null;
+  return isAdministrator(data) ? <DashboardPage /> : <OperatorDashboardPage />;
+}
+
 export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<Protected />}>
-        <Route path="/" element={<DashboardPage />} />
+        <Route path="/" element={<HomeRoute />} />
         <Route path="/treatment-history" element={<TreatmentHistoryPage />} />
-        <Route path="/doctor-fees" element={<DoctorFeesPage />} />
-        <Route path="/payroll" element={<PayrollPage />} />
+        <Route path="/doctor-fees" element={<AdminRoute><DoctorFeesPage /></AdminRoute>} />
+        <Route path="/payroll" element={<AdminRoute><PayrollPage /></AdminRoute>} />
+        <Route path="/my-payroll" element={<OperatorRoute><MyPayrollPage /></OperatorRoute>} />
         <Route path="/attendance" element={<AttendancePage />} />
-        <Route path="/master-data" element={<MasterDataPage />} />
-        <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/master-data" element={<AdminRoute><MasterDataPage /></AdminRoute>} />
+        <Route path="/reports" element={<AdminRoute><ReportsPage /></AdminRoute>} />
+        <Route path="/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
+        <Route path="/audit-logs" element={<AdminRoute><AuditLogsPage /></AdminRoute>} />
+        <Route path="/my-audit-logs" element={<OperatorRoute><AuditLogsPage selfOnly /></OperatorRoute>} />
+        <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
       </Route>
     </Routes>
   );

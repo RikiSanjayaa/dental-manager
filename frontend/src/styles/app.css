@@ -81,3 +81,50 @@ a {
 .treatment-history-editor-form [role="combobox"] {
   width: 100%;
 }
+
+.user-create-dialog {
+  min-width: min(32rem, calc(100vw - 24px)) !important;
+  width: min(32rem, calc(100vw - 24px)) !important;
+}
+
+.dashboard-icon-success {
+  background: var(--color-kumo-success-tint);
+  color: var(--text-color-kumo-success);
+}
+
+.dashboard-icon-info {
+  background: var(--color-kumo-info-tint);
+  color: var(--text-color-kumo-info);
+}
+
+.dashboard-icon-warning {
+  background: var(--color-kumo-warning-tint);
+  color: var(--text-color-kumo-warning);
+}
+
+.dashboard-icon-danger {
+  background: var(--color-kumo-danger-tint);
+  color: var(--text-color-kumo-danger);
+}
+
+.payroll-summary-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.payroll-total-card {
+  display: flex;
+  min-height: 132px;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.payroll-total-amount {
+  font-size: 2.25rem;
+  line-height: 1;
+}
+
+@media (max-width: 900px) {
+  .payroll-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

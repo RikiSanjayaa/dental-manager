@@ -5,6 +5,8 @@ export type UserMe = {
   username: string;
   full_name: string;
   role: Role;
+  employee_id?: number | null;
+  employee_name?: string | null;
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";

@@ -17,7 +17,7 @@ import {
   Banknote,
   ClipboardCheck,
   Clock3,
-  FileSpreadsheet,
+  History,
   ReceiptText,
   Stethoscope,
   TrendingUp,
@@ -82,11 +82,11 @@ type Dashboard = {
   }>;
   recent_activity: Array<{
     id: string;
-    kind: "import" | "export";
+    kind: string;
     label: string;
     category: string;
-    status: string;
-    format: string;
+    actor_name?: string | null;
+    actor_username?: string | null;
     created_at: string;
   }>;
 };
@@ -228,10 +228,10 @@ export function DashboardPage() {
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "Billing Pasien", value: rupiah.format(totals?.billing_patient ?? 0), icon: WalletCards, badge: `${totals?.doctor_transactions ?? 0} trx`, tone: "text-kumo-success bg-kumo-success-tint" },
-          { label: "Fee Dokter", value: rupiah.format(totals?.doctor_fee_transfer ?? 0), icon: Stethoscope, badge: statusText[data?.status.doctor_fee ?? "empty"], tone: "text-kumo-info bg-kumo-info-tint" },
-          { label: "Payroll", value: rupiah.format(totals?.payroll_transfer ?? 0), icon: Banknote, badge: statusText[data?.status.payroll ?? "empty"], tone: "text-kumo-warning bg-kumo-warning-tint" },
-          { label: "Review", value: String(totals?.review_total ?? 0), icon: AlertTriangle, badge: statusText[readiness], tone: "text-kumo-danger bg-kumo-danger-tint" },
+          { label: "Billing Pasien", value: rupiah.format(totals?.billing_patient ?? 0), icon: WalletCards, badge: `${totals?.doctor_transactions ?? 0} trx`, tone: "dashboard-icon-success" },
+          { label: "Fee Dokter", value: rupiah.format(totals?.doctor_fee_transfer ?? 0), icon: Stethoscope, badge: statusText[data?.status.doctor_fee ?? "empty"], tone: "dashboard-icon-info" },
+          { label: "Payroll", value: rupiah.format(totals?.payroll_transfer ?? 0), icon: Banknote, badge: statusText[data?.status.payroll ?? "empty"], tone: "dashboard-icon-warning" },
+          { label: "Review", value: String(totals?.review_total ?? 0), icon: AlertTriangle, badge: statusText[readiness], tone: "dashboard-icon-danger" },
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -278,7 +278,7 @@ export function DashboardPage() {
               return (
                 <div key={item.title} className="flex items-center justify-between gap-3 rounded-md border border-kumo-hairline bg-kumo-base px-3 py-2">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-kumo-tint text-kumo-default">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full dashboard-icon-info">
                       <Icon size={17} />
                     </div>
                     <div className="min-w-0">
@@ -336,20 +336,20 @@ export function DashboardPage() {
 
         <LayerCard className="mb-6 flex flex-col gap-3 p-4">
           <div className="flex items-center justify-between gap-3">
-            <Text as="h2" variant="heading3">Aktivitas Terbaru</Text>
-          <Button variant="secondary" size="sm" icon={<FileSpreadsheet size={16} />} onClick={() => navigate("/reports")}>
-            Laporan
+            <Text as="h2" variant="heading3">Audit Logs Terbaru</Text>
+          <Button variant="secondary" size="sm" icon={<History size={16} />} onClick={() => navigate("/audit-logs")}>
+            Audit Logs
           </Button>
           </div>
           <DataTable
             rows={(data?.recent_activity ?? []).slice(0, 3)}
             minTableWidth={380}
             rowKey={(row) => row.id}
-            empty="Belum ada aktivitas terbaru."
+            empty="Belum ada audit log terbaru."
             columns={[
               { key: "time", header: "Waktu", render: (row) => formatDateTime(row.created_at) },
-              { key: "label", header: "File", render: (row) => row.label },
-              { key: "kind", header: "", render: (row) => <Badge variant={row.kind === "export" ? "info" : "success"}>{row.kind}</Badge> },
+              { key: "label", header: "Aktivitas", render: (row) => row.label },
+              { key: "kind", header: "", render: (row) => <Badge variant={row.kind === "login" || row.kind === "logout" ? "info" : "secondary"}>{row.kind}</Badge> },
             ]}
           />
         </LayerCard>

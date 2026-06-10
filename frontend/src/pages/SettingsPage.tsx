@@ -55,6 +55,10 @@ type AttendanceHoliday = {
   is_holiday: boolean;
 };
 
+type ReportIdentity = {
+  clinic_name: string;
+};
+
 type PayrollDraft = {
   name: string;
   default_base_salary: string;
@@ -107,9 +111,14 @@ export function SettingsPage() {
   const [payrollDrafts, setPayrollDrafts] = useState<Record<number, PayrollDraft>>({});
   const [attendanceDrafts, setAttendanceDrafts] = useState<Record<number, AttendanceDraft>>({});
   const [doctorDrafts, setDoctorDrafts] = useState<Record<number, DoctorDraft>>({});
+  const [reportClinicName, setReportClinicName] = useState("");
   const [holidayDeleteTarget, setHolidayDeleteTarget] = useState<AttendanceHoliday | null>(null);
   const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
 
+  const { data: reportIdentity } = useQuery({
+    queryKey: ["report-identity"],
+    queryFn: () => api<ReportIdentity>("/settings/report-identity"),
+  });
   const { data: payrollRules } = useQuery({
     queryKey: ["payroll-rules"],
     queryFn: () => api<PayrollRule[]>("/settings/payroll-rules"),
@@ -129,6 +138,10 @@ export function SettingsPage() {
     queryFn: () =>
       api<AttendanceHoliday[]>(`/settings/attendance-holidays?start=${holidayBounds.start}&end=${holidayBounds.end}`),
   });
+
+  useEffect(() => {
+    setReportClinicName(reportIdentity?.clinic_name ?? "");
+  }, [reportIdentity]);
 
   useEffect(() => {
     const next: Record<number, PayrollDraft> = {};
@@ -198,6 +211,17 @@ export function SettingsPage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["payroll-rules"] });
       await queryClient.invalidateQueries({ queryKey: ["payroll-overview"] });
+    },
+  });
+
+  const saveReportIdentity = useMutation({
+    mutationFn: () =>
+      api<ReportIdentity>("/settings/report-identity", {
+        method: "PATCH",
+        body: JSON.stringify({ clinic_name: reportClinicName }),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["report-identity"] });
     },
   });
 
@@ -308,6 +332,27 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Pengaturan" eyebrow="Aturan kalkulasi dan preferensi aplikasi" />
+
+      <LayerCard>
+        <LayerCard.Secondary>
+          <Text as="h2" variant="heading3">Identitas Laporan</Text>
+          <Text variant="secondary" size="sm">Nama klinik untuk header PDF, Excel, dan nomor surat export.</Text>
+        </LayerCard.Secondary>
+        <LayerCard.Primary>
+          <form
+            className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveReportIdentity.mutate();
+            }}
+          >
+            <Field label="Nama Klinik untuk Laporan" labelTooltip="Nama ini muncul di seluruh hasil export PDF/XLSX dan nomor surat. Brand web app tetap diatur dari env VITE_APP_BRAND_NAME.">
+              <Input value={reportClinicName} placeholder="Contoh: Devema Dental Care" onChange={(event) => setReportClinicName(event.target.value)} />
+            </Field>
+            <Button type="submit" variant="primary" loading={saveReportIdentity.isPending}>Simpan Perubahan</Button>
+          </form>
+        </LayerCard.Primary>
+      </LayerCard>
 
       <div className="grid gap-4 xl:grid-cols-3">
         {(payrollRules ?? []).map((rule) => {
