@@ -1,5 +1,6 @@
 import { Banner } from "@cloudflare/kumo/components/banner";
 import { Button } from "@cloudflare/kumo/components/button";
+import { Checkbox } from "@cloudflare/kumo/components/checkbox";
 import { Input } from "@cloudflare/kumo/components/input";
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { SensitiveInput } from "@cloudflare/kumo/components/sensitive-input";
@@ -16,13 +17,14 @@ import { brandName, brandShortName } from "../lib/brand";
 export function LoginPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin12345");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const [mode, setMode] = useState<"light" | "dark">(() => {
     return localStorage.getItem("dental_manager_mode") === "dark" ? "dark" : "light";
   });
   const mutation = useMutation({
-    mutationFn: () => login(username, password),
+    mutationFn: () => login(username, password, remember),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["me"] });
       navigate("/");
@@ -101,6 +103,11 @@ export function LoginPage() {
                 autoComplete="current-password"
                 value={password}
                 onValueChange={setPassword}
+              />
+              <Checkbox
+                label="Remember me"
+                checked={remember}
+                onCheckedChange={(checked) => setRemember(Boolean(checked))}
               />
               <Button type="submit" variant="primary" className="w-full justify-center text-center" loading={mutation.isPending}>
                 Sign in

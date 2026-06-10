@@ -13,12 +13,17 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 const TOKEN_KEY = "dental_manager_token";
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY);
 }
 
-export function setToken(token: string | null) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+export function setToken(token: string | null, remember = true) {
+  localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+
+  if (!token) return;
+
+  if (remember) localStorage.setItem(TOKEN_KEY, token);
+  else sessionStorage.setItem(TOKEN_KEY, token);
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -38,7 +43,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response as T;
 }
 
-export async function login(username: string, password: string) {
+export async function login(username: string, password: string, remember = true) {
   const form = new URLSearchParams();
   form.set("username", username);
   form.set("password", password);
@@ -57,7 +62,7 @@ export async function login(username: string, password: string) {
     throw new Error(response.status === 401 ? "Username atau password salah." : message || "Login gagal.");
   }
   const data = (await response.json()) as { access_token: string };
-  setToken(data.access_token);
+  setToken(data.access_token, remember);
   return data;
 }
 
