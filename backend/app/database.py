@@ -1,11 +1,12 @@
 from collections.abc import Generator
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.config import get_settings
-from app.models import AppSetting, AttendanceRule, DoctorFeeRule, PayrollRule, User, UserRole
+from app.models import AppSetting, AttendanceRule, AuditLog, DoctorFeeRule, PayrollRule, User, UserRole
 from app.security import hash_password
 
 settings = get_settings()
@@ -28,6 +29,7 @@ def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     ensure_sqlite_columns()
     seed_defaults()
+    prune_old_audit_logs()
 
 
 def ensure_sqlite_columns() -> None:
@@ -112,6 +114,16 @@ def seed_defaults() -> None:
             session.add(AppSetting(key="report_clinic_name", value=settings.app_name))
 
         session.commit()
+
+
+def prune_old_audit_logs(retention_days: int = 365) -> int:
+    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+    with Session(engine) as session:
+        rows = session.exec(select(AuditLog).where(AuditLog.created_at < cutoff)).all()
+        for row in rows:
+            session.delete(row)
+        session.commit()
+        return len(rows)
 
 
 def refresh_database() -> None:

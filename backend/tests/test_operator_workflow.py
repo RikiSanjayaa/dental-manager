@@ -1,11 +1,11 @@
-from datetime import date, time
+from datetime import date, datetime, timedelta, time
 from io import BytesIO
 
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 from sqlmodel import Session, select
 
-from app.database import engine, refresh_database
+from app.database import engine, prune_old_audit_logs, refresh_database
 from app.main import app
 from app.models import AuditLog, AttendanceRecord, Employee, User, UserRole
 from app.security import create_access_token, hash_password
@@ -190,3 +190,36 @@ def test_operator_audit_logs_are_self_scoped():
     body = response.json()
     assert [row["actor_username"] for row in body] == ["operator"]
     assert body[0]["description"] == "Login operator."
+
+
+def test_old_audit_logs_are_pruned_automatically():
+    refresh_database()
+    with Session(engine) as session:
+        session.add(
+            AuditLog(
+                actor_username="operator",
+                actor_name="Operator Satu",
+                action="login",
+                entity_type="auth",
+                description="Log lama.",
+                created_at=datetime.utcnow() - timedelta(days=366),
+            )
+        )
+        session.add(
+            AuditLog(
+                actor_username="operator",
+                actor_name="Operator Satu",
+                action="logout",
+                entity_type="auth",
+                description="Log baru.",
+                created_at=datetime.utcnow() - timedelta(days=30),
+            )
+        )
+        session.commit()
+
+    assert prune_old_audit_logs() == 1
+
+    with Session(engine) as session:
+        rows = session.exec(select(AuditLog).order_by(AuditLog.created_at)).all()
+
+    assert [row.description for row in rows] == ["Log baru."]
