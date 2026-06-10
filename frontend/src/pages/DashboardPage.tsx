@@ -28,6 +28,7 @@ import { useNavigate } from "react-router-dom";
 
 import { DataTable } from "../components/DataTable";
 import { api, rupiah } from "../lib/api";
+import { formatWitaDateTime } from "../lib/datetime";
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
@@ -115,12 +116,12 @@ function statusBadge(status: string) {
 }
 
 function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("id-ID", {
+  return formatWitaDateTime(value, {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
+  });
 }
 
 export function DashboardPage() {

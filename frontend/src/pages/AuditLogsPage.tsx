@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 
 import { DataTable } from "../components/DataTable";
 import { api } from "../lib/api";
+import { formatWitaDateTime } from "../lib/datetime";
 
 type AuditLog = {
   id: number;
@@ -42,12 +43,10 @@ function actionBadge(action: string) {
 }
 
 function formatDateTime(value: string) {
-  const normalizedValue = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
-  return `${new Intl.DateTimeFormat("id-ID", {
+  return formatWitaDateTime(value, {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: "Asia/Makassar",
-  }).format(new Date(normalizedValue))} WITA`;
+  });
 }
 
 type Props = {

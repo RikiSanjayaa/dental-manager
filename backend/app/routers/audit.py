@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from sqlmodel import select
 
 from app.dependencies import AdminUser, CurrentUser, SessionDep
@@ -21,6 +21,12 @@ class AuditLogRead(BaseModel):
     description: str
     metadata_json: dict
     created_at: datetime
+
+    @field_serializer("created_at")
+    def serialize_created_at(self, value: datetime) -> str:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def audit_log_statement(

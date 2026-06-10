@@ -190,6 +190,7 @@ def test_operator_audit_logs_are_self_scoped():
     body = response.json()
     assert [row["actor_username"] for row in body] == ["operator"]
     assert body[0]["description"] == "Login operator."
+    assert body[0]["created_at"].endswith("Z")
 
 
 def test_old_audit_logs_are_pruned_automatically():

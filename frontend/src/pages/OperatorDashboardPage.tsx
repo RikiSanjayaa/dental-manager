@@ -23,6 +23,7 @@ import { useNavigate } from "react-router-dom";
 import { DataTable } from "../components/DataTable";
 import { api, rupiah } from "../lib/api";
 import { useCurrentUser } from "../lib/auth";
+import { formatWitaDateTime } from "../lib/datetime";
 
 type RecentAttendance = {
   id: number;
@@ -100,12 +101,12 @@ function statusBadge(status: string) {
 }
 
 function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("id-ID", {
+  return formatWitaDateTime(value, {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
+  });
 }
 
 export function OperatorDashboardPage() {
