@@ -2,7 +2,7 @@ from datetime import date
 from io import BytesIO
 
 from fastapi.testclient import TestClient
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from sqlmodel import Session, select
 
 from app.database import engine, refresh_database
@@ -139,3 +139,35 @@ def test_transaction_import_preview_commit_marks_unknown_treatment_for_review():
         trx = session.exec(select(DoctorTransaction)).one()
         assert trx.needs_review is True
         assert trx.period == "2026-05"
+
+
+def test_doctor_transaction_template_includes_master_reference_notes():
+    doctor_id, treatment_id = seed_master()
+    client = TestClient(app)
+    response = client.get("/reports/templates/doctor-transactions.xlsx")
+
+    assert response.status_code == 200
+    workbook = load_workbook(BytesIO(response.content), data_only=True)
+    assert workbook.sheetnames == ["DoctorTransactions", "Notes"]
+
+    notes = workbook["Notes"]
+    values = [row for row in notes.iter_rows(values_only=True)]
+    assert any(row[0] == "Referensi Dokter" for row in values)
+    assert ["doctor_id", "doctor_name"] in [list(row[:2]) for row in values]
+    assert [doctor_id, "Drg. Dokter 1"] in [list(row[:2]) for row in values]
+
+    treatment_rows = [list(row[:11]) for row in values]
+    assert [
+        "treatment_id",
+        "code",
+        "treatment_name",
+        "category",
+        "doctor_cost",
+        "specialist_cost",
+        "bhp_cost",
+        "service_fee",
+        "treatment_price",
+        "notes",
+        "status",
+    ] in treatment_rows
+    assert any(row[0] == treatment_id and row[2] == "Scaling A" and row[6] == 120_000 and row[8] == 350_000 for row in treatment_rows)

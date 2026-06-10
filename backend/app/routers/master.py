@@ -10,10 +10,11 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, select
 
+from app.audit import record_audit
 from app.dependencies import AdminUser, CurrentUser, SessionDep
 from app.config import get_settings
 from app.importers import commit_doctors, commit_employees, commit_treatments, preview_doctors, preview_employees, preview_treatments
-from app.models import AttendanceHoliday, AttendanceRule, Doctor, DoctorFeeRule, Employee, ImportFile, ImportKind, ImportStatus, PayrollRule, Treatment, User, UserRole
+from app.models import AppSetting, AttendanceHoliday, AttendanceRule, Doctor, DoctorFeeRule, Employee, ImportFile, ImportKind, ImportStatus, PayrollRule, Treatment, User, UserRole
 from app.security import hash_password
 from app.utils import normalize_text
 
@@ -26,6 +27,7 @@ class UserCreate(BaseModel):
     full_name: str
     password: str
     role: UserRole = UserRole.OPERATOR
+    employee_id: int | None = None
     is_active: bool = True
 
 
@@ -34,6 +36,8 @@ class UserRead(BaseModel):
     username: str
     full_name: str
     role: UserRole
+    employee_id: int | None = None
+    employee_name: str | None = None
     is_active: bool
 
 
@@ -41,6 +45,7 @@ class UserUpdate(BaseModel):
     full_name: str | None = None
     password: str | None = None
     role: UserRole | None = None
+    employee_id: int | None = None
     is_active: bool | None = None
 
 
@@ -119,6 +124,10 @@ class AttendanceHolidayInput(BaseModel):
     is_holiday: bool = True
 
 
+class ReportIdentity(BaseModel):
+    clinic_name: str
+
+
 def _list(session: SessionDep, model: type[ModelT], search: str | None = None) -> list[ModelT]:
     statement = select(model)
     rows = session.exec(statement).all()
@@ -126,6 +135,26 @@ def _list(session: SessionDep, model: type[ModelT], search: str | None = None) -
         lowered = search.lower()
         rows = [row for row in rows if lowered in str(getattr(row, "name", getattr(row, "username", ""))).lower()]
     return rows
+
+
+def _user_read(session: SessionDep, user: User) -> UserRead:
+    employee = session.get(Employee, user.employee_id) if user.employee_id else None
+    return UserRead(
+        id=user.id or 0,
+        username=user.username,
+        full_name=user.full_name,
+        role=user.role,
+        employee_id=user.employee_id,
+        employee_name=employee.name if employee else None,
+        is_active=user.is_active,
+    )
+
+
+def _validate_user_employee(session: SessionDep, employee_id: int | None) -> None:
+    if employee_id is None:
+        return
+    if not session.get(Employee, employee_id):
+        raise HTTPException(status_code=404, detail="Karyawan terhubung tidak ditemukan.")
 
 
 def _get_or_404(session: SessionDep, model: type[ModelT], item_id: int) -> ModelT:
@@ -146,28 +175,50 @@ def _master_model(target: str) -> type[Employee] | type[Doctor] | type[Treatment
 
 
 @router.get("/users", response_model=list[UserRead])
-def list_users(session: SessionDep, _: AdminUser) -> list[User]:
-    return session.exec(select(User)).all()
+def list_users(session: SessionDep, _: AdminUser) -> list[UserRead]:
+    return [_user_read(session, user) for user in session.exec(select(User)).all()]
 
 
 @router.post("/users", response_model=UserRead)
-def create_user(payload: UserCreate, session: SessionDep, _: AdminUser) -> User:
+def create_user(payload: UserCreate, session: SessionDep, admin: AdminUser) -> UserRead:
+    _validate_user_employee(session, payload.employee_id)
     user = User(
         username=payload.username,
         full_name=payload.full_name,
         role=payload.role,
+        employee_id=payload.employee_id,
         hashed_password=hash_password(payload.password),
         is_active=payload.is_active,
     )
     session.add(user)
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Username sudah dipakai.") from exc
+    session.refresh(user)
+    record_audit(
+        session,
+        admin,
+        "create",
+        "user",
+        f"Membuat user {user.username}.",
+        entity_id=user.id,
+        metadata={"role": user.role.value, "is_active": user.is_active, "employee_id": user.employee_id},
+    )
     session.commit()
     session.refresh(user)
-    return user
+    return _user_read(session, user)
 
 
 @router.patch("/users/{item_id}", response_model=UserRead)
-def update_user(item_id: int, payload: UserUpdate, session: SessionDep, _: AdminUser) -> User:
+def update_user(item_id: int, payload: UserUpdate, session: SessionDep, admin: AdminUser) -> UserRead:
     user = _get_or_404(session, User, item_id)
+    if user.id == admin.id and payload.is_active is False:
+        raise HTTPException(status_code=409, detail="Admin tidak bisa menonaktifkan akun sendiri.")
+    if "employee_id" in payload.model_fields_set:
+        _validate_user_employee(session, payload.employee_id)
+    before = {"role": user.role.value, "is_active": user.is_active, "full_name": user.full_name, "employee_id": user.employee_id}
     for field, value in payload.model_dump(exclude_unset=True, exclude={"password"}).items():
         setattr(user, field, value)
     if payload.password:
@@ -175,11 +226,31 @@ def update_user(item_id: int, payload: UserUpdate, session: SessionDep, _: Admin
     session.add(user)
     session.commit()
     session.refresh(user)
-    return user
+    record_audit(
+        session,
+        admin,
+        "update",
+        "user",
+        f"Memperbarui user {user.username}.",
+        entity_id=user.id,
+        metadata={
+            "before": before,
+            "after": {"role": user.role.value, "is_active": user.is_active, "full_name": user.full_name, "employee_id": user.employee_id},
+            "password_changed": bool(payload.password),
+        },
+    )
+    session.commit()
+    session.refresh(user)
+    return _user_read(session, user)
 
 
 @router.get("/employees", response_model=list[Employee])
-def list_employees(session: SessionDep, _: CurrentUser, search: str | None = None) -> list[Employee]:
+def list_employees(session: SessionDep, user: CurrentUser, search: str | None = None) -> list[Employee]:
+    if user.role == UserRole.OPERATOR:
+        if not user.employee_id:
+            return []
+        employee = session.get(Employee, user.employee_id)
+        return [employee] if employee else []
     return _list(session, Employee, search)
 
 
@@ -561,6 +632,28 @@ async def import_employees(session: SessionDep, _: AdminUser, file: UploadFile =
         "warnings": preview["warnings"][:20],
         "errors": preview["errors"][:20],
     }
+
+
+@router.get("/settings/report-identity", response_model=ReportIdentity)
+def get_report_identity(session: SessionDep, _: CurrentUser) -> ReportIdentity:
+    item = session.exec(select(AppSetting).where(AppSetting.key == "report_clinic_name")).first()
+    return ReportIdentity(clinic_name=item.value if item and item.value.strip() else get_settings().app_name)
+
+
+@router.patch("/settings/report-identity", response_model=ReportIdentity)
+def update_report_identity(payload: ReportIdentity, session: SessionDep, _: AdminUser) -> ReportIdentity:
+    clinic_name = payload.clinic_name.strip()
+    if not clinic_name:
+        raise HTTPException(status_code=400, detail="Nama klinik wajib diisi.")
+    item = session.exec(select(AppSetting).where(AppSetting.key == "report_clinic_name")).first()
+    if not item:
+        item = AppSetting(key="report_clinic_name")
+    item.value = clinic_name
+    item.updated_at = datetime.utcnow()
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return ReportIdentity(clinic_name=item.value)
 
 
 @router.get("/settings/payroll-rules", response_model=list[PayrollRule])

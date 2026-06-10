@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session
@@ -7,13 +7,13 @@ from app.database import engine, refresh_database
 from app.main import app
 from app.models import (
     AttendanceRecord,
+    AuditLog,
     Doctor,
     DoctorPeriodSummary,
     DoctorTransaction,
     Employee,
     PayrollRecord,
     PeriodStatus,
-    ReportArchive,
 )
 from app.security import create_access_token
 
@@ -72,15 +72,12 @@ def test_dashboard_returns_operational_overview():
             )
         )
         session.add(
-            ReportArchive(
-                report_type="payroll",
-                period="2026-05",
-                status="draft",
-                format="xlsx",
-                filename="payroll.xlsx",
-                stored_path="payroll.xlsx",
-                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                expires_at=datetime.utcnow() + timedelta(days=90),
+            AuditLog(
+                actor_username="admin",
+                actor_name="Administrator",
+                action="export",
+                entity_type="report",
+                description="Export payroll.",
             )
         )
         session.commit()
@@ -100,3 +97,4 @@ def test_dashboard_returns_operational_overview():
     assert body["top_doctors"][0]["doctor_name"] == "Drg. Leni"
     assert body["top_overtime_employees"][0]["employee_name"] == "RIKA"
     assert body["recent_activity"][0]["kind"] == "export"
+    assert body["recent_activity"][0]["label"] == "Export payroll."

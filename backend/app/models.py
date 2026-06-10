@@ -36,9 +36,23 @@ class User(SQLModel, table=True):
     username: str = Field(unique=True, index=True)
     full_name: str
     role: UserRole = Field(default=UserRole.OPERATOR, index=True)
+    employee_id: Optional[int] = Field(default=None, foreign_key="employee.id", index=True)
     hashed_password: str
     is_active: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AuditLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    actor_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    actor_username: Optional[str] = Field(default=None, index=True)
+    actor_name: Optional[str] = None
+    action: str = Field(index=True)
+    entity_type: str = Field(index=True)
+    entity_id: Optional[str] = Field(default=None, index=True)
+    description: str
+    metadata_json: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
 class Employee(SQLModel, table=True):
@@ -128,6 +142,13 @@ class DoctorFeeRule(SQLModel, table=True):
     tax_rate: float = 0.025
     default_deduction: float = 0
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AppSetting(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(unique=True, index=True)
+    value: str = ""
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class ImportFile(SQLModel, table=True):
@@ -221,6 +242,10 @@ class AttendanceRecord(SQLModel, table=True):
     is_double_shift: bool = False
     status_note: Optional[str] = None
     needs_review: bool = False
+    protest_note: Optional[str] = None
+    protest_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    protest_by_name: Optional[str] = None
+    protested_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

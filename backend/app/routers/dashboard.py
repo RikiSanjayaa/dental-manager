@@ -7,14 +7,13 @@ from sqlmodel import func, select
 from app.dependencies import CurrentUser, SessionDep
 from app.models import (
     AttendanceRecord,
+    AuditLog,
     Doctor,
     DoctorPeriodSummary,
     DoctorTransaction,
     Employee,
-    ImportFile,
     PayrollRecord,
     PeriodStatus,
-    ReportArchive,
 )
 
 router = APIRouter(tags=["dashboard"])
@@ -124,33 +123,19 @@ def top_overtime_employees(session: SessionDep, period: str) -> list[dict]:
 
 
 def recent_activity(session: SessionDep) -> list[dict]:
-    imports = session.exec(select(ImportFile).order_by(ImportFile.created_at.desc()).limit(6)).all()
-    reports = session.exec(select(ReportArchive).order_by(ReportArchive.created_at.desc()).limit(6)).all()
-    activity = [
+    logs = session.exec(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(8)).all()
+    return [
         {
-            "id": f"import-{row.id}",
-            "kind": "import",
-            "label": row.original_filename,
-            "category": row.kind.value,
-            "status": row.status.value,
-            "format": "xlsx",
+            "id": f"audit-{row.id}",
+            "kind": row.action,
+            "label": row.description,
+            "category": row.entity_type,
+            "actor_name": row.actor_name,
+            "actor_username": row.actor_username,
             "created_at": row.created_at,
         }
-        for row in imports
+        for row in logs
     ]
-    activity += [
-        {
-            "id": f"report-{row.id}",
-            "kind": "export",
-            "label": row.filename,
-            "category": row.report_type,
-            "status": row.status,
-            "format": row.format,
-            "created_at": row.created_at,
-        }
-        for row in reports
-    ]
-    return sorted(activity, key=lambda row: row["created_at"], reverse=True)[:8]
 
 
 @router.get("/dashboard")

@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from sqlmodel import select
 
 from app.config import get_settings
-from app.dependencies import CurrentUser, SessionDep
+from app.audit import record_audit
+from app.dependencies import AdminUser, SessionDep
 from app.models import DoctorPeriodSummary, PayrollRecord, PeriodStatus, ReportArchive, User
 from app.reports import doctor_fee_pdf, doctor_fee_pdf_zip, doctor_fee_xlsx, payroll_pdf, payroll_pdf_zip, payroll_slip_pdf, payroll_xlsx, template_xlsx
 
@@ -111,14 +112,14 @@ def _archive_stream(
 
 
 @router.get("/archive", response_model=list[ReportArchiveRead])
-def list_report_archive(session: SessionDep, _: CurrentUser) -> list[ReportArchiveRead]:
+def list_report_archive(session: SessionDep, _: AdminUser) -> list[ReportArchiveRead]:
     _cleanup_expired_archives(session)
     rows = session.exec(select(ReportArchive).order_by(ReportArchive.created_at.desc())).all()
     return [_archive_read(row) for row in rows]
 
 
 @router.get("/archive/{archive_id}/download")
-def download_report_archive(archive_id: int, session: SessionDep, _: CurrentUser) -> FileResponse:
+def download_report_archive(archive_id: int, session: SessionDep, _: AdminUser) -> FileResponse:
     _cleanup_expired_archives(session)
     row = session.get(ReportArchive, archive_id)
     if not row or not Path(row.stored_path).exists():
@@ -131,20 +132,29 @@ def download_report_archive(archive_id: int, session: SessionDep, _: CurrentUser
 
 
 @router.delete("/archive/{archive_id}")
-def delete_report_archive(archive_id: int, session: SessionDep, _: CurrentUser) -> dict[str, str]:
+def delete_report_archive(archive_id: int, session: SessionDep, admin: AdminUser) -> dict[str, str]:
     row = session.get(ReportArchive, archive_id)
     if not row:
         raise HTTPException(status_code=404, detail="Arsip laporan tidak ditemukan.")
     path = Path(row.stored_path)
     if path.exists():
         path.unlink()
+    record_audit(
+        session,
+        admin,
+        "delete",
+        "report_archive",
+        f"Menghapus arsip laporan {row.filename}.",
+        entity_id=row.id,
+        metadata={"report_type": row.report_type, "period": row.period, "format": row.format},
+    )
     session.delete(row)
     session.commit()
     return {"status": "ok"}
 
 
 @router.get("/doctor-fees")
-def export_doctor_fees(period: str, format: str, session: SessionDep, user: CurrentUser) -> StreamingResponse:
+def export_doctor_fees(period: str, format: str, session: SessionDep, user: AdminUser) -> StreamingResponse:
     if format == "xlsx":
         stream = doctor_fee_xlsx(session, period)
         filename = f"doctor-fees-{period}.xlsx"
@@ -159,6 +169,8 @@ def export_doctor_fees(period: str, format: str, session: SessionDep, user: Curr
             filename=filename,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+        record_audit(session, user, "export", "report", f"Export fee dokter XLSX periode {period}.", entity_id=period, metadata={"format": "xlsx"})
+        session.commit()
         return StreamingResponse(
             iter([data]),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -178,6 +190,8 @@ def export_doctor_fees(period: str, format: str, session: SessionDep, user: Curr
             filename=filename,
             media_type="application/pdf",
         )
+        record_audit(session, user, "export", "report", f"Export fee dokter PDF periode {period}.", entity_id=period, metadata={"format": "pdf"})
+        session.commit()
         return StreamingResponse(
             iter([data]),
             media_type="application/pdf",
@@ -197,6 +211,8 @@ def export_doctor_fees(period: str, format: str, session: SessionDep, user: Curr
             filename=filename,
             media_type="application/zip",
         )
+        record_audit(session, user, "export", "report", f"Export fee dokter ZIP periode {period}.", entity_id=period, metadata={"format": "zip"})
+        session.commit()
         return StreamingResponse(
             iter([data]),
             media_type="application/zip",
@@ -206,7 +222,7 @@ def export_doctor_fees(period: str, format: str, session: SessionDep, user: Curr
 
 
 @router.get("/payroll")
-def export_payroll(period: str, format: str, session: SessionDep, user: CurrentUser) -> StreamingResponse:
+def export_payroll(period: str, format: str, session: SessionDep, user: AdminUser) -> StreamingResponse:
     if format == "xlsx":
         stream = payroll_xlsx(session, period)
         filename = f"payroll-{period}.xlsx"
@@ -221,6 +237,8 @@ def export_payroll(period: str, format: str, session: SessionDep, user: CurrentU
             filename=filename,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+        record_audit(session, user, "export", "report", f"Export payroll XLSX periode {period}.", entity_id=period, metadata={"format": "xlsx"})
+        session.commit()
         return StreamingResponse(
             iter([data]),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -240,6 +258,8 @@ def export_payroll(period: str, format: str, session: SessionDep, user: CurrentU
             filename=filename,
             media_type="application/pdf",
         )
+        record_audit(session, user, "export", "report", f"Export payroll PDF periode {period}.", entity_id=period, metadata={"format": "pdf"})
+        session.commit()
         return StreamingResponse(
             iter([data]),
             media_type="application/pdf",
@@ -259,6 +279,8 @@ def export_payroll(period: str, format: str, session: SessionDep, user: CurrentU
             filename=filename,
             media_type="application/zip",
         )
+        record_audit(session, user, "export", "report", f"Export slip payroll ZIP periode {period}.", entity_id=period, metadata={"format": "zip"})
+        session.commit()
         return StreamingResponse(
             iter([data]),
             media_type="application/zip",
@@ -268,7 +290,7 @@ def export_payroll(period: str, format: str, session: SessionDep, user: CurrentU
 
 
 @router.get("/payroll/{period}/slips/{employee_id}.pdf")
-def export_payroll_slip(period: str, employee_id: int, session: SessionDep, user: CurrentUser) -> StreamingResponse:
+def export_payroll_slip(period: str, employee_id: int, session: SessionDep, user: AdminUser) -> StreamingResponse:
     stream = payroll_slip_pdf(session, period, employee_id)
     filename = f"slip-gaji-{period}-{employee_id}.pdf"
     data = _archive_stream(
@@ -282,6 +304,8 @@ def export_payroll_slip(period: str, employee_id: int, session: SessionDep, user
         filename=filename,
         media_type="application/pdf",
     )
+    record_audit(session, user, "export", "report", f"Export slip payroll {employee_id} periode {period}.", entity_id=period, metadata={"format": "pdf", "employee_id": employee_id})
+    session.commit()
     return StreamingResponse(
         iter([data]),
         media_type="application/pdf",

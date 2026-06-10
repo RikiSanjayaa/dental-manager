@@ -5,7 +5,7 @@ from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.config import get_settings
-from app.models import AttendanceRule, DoctorFeeRule, PayrollRule, User, UserRole
+from app.models import AppSetting, AttendanceRule, DoctorFeeRule, PayrollRule, User, UserRole
 from app.security import hash_password
 
 settings = get_settings()
@@ -62,6 +62,23 @@ def ensure_sqlite_columns() -> None:
                 connection.execute(text("ALTER TABLE attendancerecord ADD COLUMN is_absent BOOLEAN DEFAULT 0"))
             if "is_holiday" not in attendance_columns:
                 connection.execute(text("ALTER TABLE attendancerecord ADD COLUMN is_holiday BOOLEAN DEFAULT 0"))
+            if "protest_note" not in attendance_columns:
+                connection.execute(text("ALTER TABLE attendancerecord ADD COLUMN protest_note VARCHAR"))
+            if "protest_by_user_id" not in attendance_columns:
+                connection.execute(text("ALTER TABLE attendancerecord ADD COLUMN protest_by_user_id INTEGER"))
+                connection.execute(text("CREATE INDEX IF NOT EXISTS ix_attendancerecord_protest_by_user_id ON attendancerecord (protest_by_user_id)"))
+            if "protest_by_name" not in attendance_columns:
+                connection.execute(text("ALTER TABLE attendancerecord ADD COLUMN protest_by_name VARCHAR"))
+            if "protested_at" not in attendance_columns:
+                connection.execute(text("ALTER TABLE attendancerecord ADD COLUMN protested_at DATETIME"))
+    if "user" in table_names:
+        user_columns = {column["name"] for column in inspector.get_columns("user")}
+        with engine.begin() as connection:
+            if "employee_id" not in user_columns:
+                connection.execute(text("ALTER TABLE user ADD COLUMN employee_id INTEGER"))
+                connection.execute(text("CREATE INDEX IF NOT EXISTS ix_user_employee_id ON user (employee_id)"))
+            connection.execute(text("UPDATE user SET role = 'ADMIN' WHERE role IN ('admin', 'administrator', 'ADMINISTRATOR')"))
+            connection.execute(text("UPDATE user SET role = 'OPERATOR' WHERE role IN ('operator', 'regular_user', 'REGULAR_USER')"))
 
 
 def seed_defaults() -> None:
@@ -89,6 +106,10 @@ def seed_defaults() -> None:
         fee_rule = session.exec(select(DoctorFeeRule).where(DoctorFeeRule.name == "Default")).first()
         if not fee_rule:
             session.add(DoctorFeeRule(name="Default", is_default=True))
+
+        clinic_name = session.exec(select(AppSetting).where(AppSetting.key == "report_clinic_name")).first()
+        if not clinic_name:
+            session.add(AppSetting(key="report_clinic_name", value=settings.app_name))
 
         session.commit()
 

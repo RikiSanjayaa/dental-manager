@@ -148,3 +148,20 @@ def test_doctor_fee_lock_rejects_review_rows_and_export_has_detail_sheet():
     deleted = client.delete(f"/reports/archive/{xlsx_archive['id']}", headers=headers)
     assert deleted.status_code == 200
     assert client.get(f"/reports/archive/{xlsx_archive['id']}/download", headers=headers).status_code == 404
+
+
+def test_report_clinic_name_setting_is_used_by_exports():
+    seed_fee_rows()
+    client = TestClient(app)
+    headers = auth_headers()
+
+    update = client.patch("/settings/report-identity", headers=headers, json={"clinic_name": "Devema Dental Care"})
+    assert update.status_code == 200
+
+    assert client.post("/doctor-periods/2026-05/calculate", headers=headers).status_code == 200
+    response = client.get("/reports/doctor-fees?period=2026-05&format=xlsx", headers=headers)
+    assert response.status_code == 200
+    workbook = load_workbook(BytesIO(response.content), data_only=True)
+    detail = workbook["TS. Drg. Leni Ruslaini"]
+    assert detail["A1"].value == "DEVEMA DENTAL CARE"
+    assert detail["B3"].value == "No. Surat: 001/SG-DOC/DEVEMA DENTAL CARE/V/2026"

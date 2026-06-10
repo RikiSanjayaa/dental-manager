@@ -15,7 +15,7 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 from sqlmodel import Session, select
 
 from app.config import get_settings
-from app.models import AttendanceRecord, Doctor, DoctorFeeRule, DoctorPeriodSummary, DoctorTransaction, Employee, PayrollRecord, PeriodStatus, Treatment
+from app.models import AppSetting, AttendanceRecord, Doctor, DoctorFeeRule, DoctorPeriodSummary, DoctorTransaction, Employee, PayrollRecord, PeriodStatus, Treatment
 
 
 def _money(value: float) -> str:
@@ -32,8 +32,10 @@ def _rate(value: float | None) -> str:
     return f"{(value or 0) * 100:.0f}%"
 
 
-def _clinic_name() -> str:
-    return get_settings().app_name.upper()
+def _clinic_name(session: Session) -> str:
+    item = session.exec(select(AppSetting).where(AppSetting.key == "report_clinic_name")).first()
+    name = item.value if item and item.value.strip() else get_settings().app_name
+    return name.upper()
 
 
 def _roman_month(period: str) -> str:
@@ -51,8 +53,8 @@ def _period_label(period: str) -> str:
     return f"{names[month - 1]} {_period_year(period)}"
 
 
-def _letter_number(index: int, period: str) -> str:
-    return f"{index:03d}/SG-DOC/{_clinic_name()}/{_roman_month(period)}/{_period_year(period)}"
+def _letter_number(session: Session, index: int, period: str) -> str:
+    return f"{index:03d}/SG-DOC/{_clinic_name(session)}/{_roman_month(period)}/{_period_year(period)}"
 
 
 def _safe_sheet_title(title: str, used: set[str]) -> str:
@@ -247,9 +249,9 @@ def doctor_fee_xlsx(session: Session, period: str) -> BytesIO:
         detail = wb.create_sheet(_safe_sheet_title(f"TS. {doctor_name}", used_titles))
         detail.merge_cells("A1:K1")
         detail.merge_cells("A2:K2")
-        detail["A1"] = _clinic_name()
+        detail["A1"] = _clinic_name(session)
         detail["A2"] = "SLIP PENDAPATAN DOKTER"
-        detail["B3"] = f"No. Surat: {_letter_number(index, period)}"
+        detail["B3"] = f"No. Surat: {_letter_number(session, index, period)}"
         detail["J3"] = export_status
         table_start = 5
         detail.append([])
@@ -447,11 +449,11 @@ def doctor_fee_pdf(session: Session, period: str, doctor_id: int | None = None, 
                 pdf.showPage()
             has_drawn_page = True
             pdf.setFont("Helvetica", 10)
-            pdf.drawCentredString(width / 2, height - 12 * mm, _clinic_name())
+            pdf.drawCentredString(width / 2, height - 12 * mm, _clinic_name(session))
             pdf.setFont("Helvetica-Bold", 15)
             pdf.drawCentredString(width / 2, height - 21 * mm, f"SLIP PENDAPATAN DOKTER {doctor_name}")
             pdf.setFont("Helvetica", 8)
-            pdf.drawString(left, height - 30 * mm, f"No. Surat: {_letter_number(doctor_index, period)}")
+            pdf.drawString(left, height - 30 * mm, f"No. Surat: {_letter_number(session, doctor_index, period)}")
             pdf.drawString(left, height - 35 * mm, f"Periode: {_period_label(period)}")
             if export_status == "DRAFT":
                 pdf.drawRightString(right, height - 30 * mm, "DRAFT")
@@ -622,7 +624,7 @@ def _write_payroll_slip_sheet(slip, records: list[PayrollRecord], session: Sessi
         employee_position = employee.position if employee and employee.position else "-"
         slip.merge_cells(start_row=row_cursor, start_column=1, end_row=row_cursor, end_column=5)
         title = slip.cell(row_cursor, 1)
-        title.value = f"SLIP GAJI - {_clinic_name()}"
+        title.value = f"SLIP GAJI - {_clinic_name(session)}"
         title.fill = PatternFill("solid", fgColor=dark_blue)
         title.font = Font(bold=True, color="FFFFFF", size=14)
         title.alignment = Alignment(horizontal="center", vertical="center")
@@ -705,13 +707,13 @@ def _write_payroll_slip_sheet(slip, records: list[PayrollRecord], session: Sessi
         slip.column_dimensions[get_column_letter(index)].width = width
 
 
-def _draw_slip_content(pdf: canvas.Canvas, record: PayrollRecord, employee: Employee | None, period: str, y_start: float = 270 * mm) -> None:
+def _draw_slip_content(pdf: canvas.Canvas, record: PayrollRecord, employee: Employee | None, period: str, session: Session, y_start: float = 270 * mm) -> None:
     width, _ = A4
     left = 18 * mm
     right = width - 18 * mm
     employee_name = employee.name if employee else f"Karyawan {record.employee_id}"
     pdf.setFont("Helvetica-Bold", 15)
-    pdf.drawCentredString(width / 2, y_start, f"SLIP GAJI - {_clinic_name()}")
+    pdf.drawCentredString(width / 2, y_start, f"SLIP GAJI - {_clinic_name(session)}")
     pdf.setFont("Helvetica", 9)
     pdf.drawString(left, y_start - 12 * mm, "Nama Karyawan")
     pdf.drawString(55 * mm, y_start - 12 * mm, employee_name)
@@ -757,11 +759,11 @@ def _draw_slip_content(pdf: canvas.Canvas, record: PayrollRecord, employee: Empl
     pdf.drawString(left, 20 * mm, "________________________")
 
 
-def payroll_xlsx(session: Session, period: str) -> BytesIO:
+def payroll_xlsx(session: Session, period: str, employee_id: int | None = None) -> BytesIO:
     wb = Workbook()
     ws = wb.active
     ws.title = "Form Gaji Karyawan"
-    records = _payroll_records(session, period)
+    records = [row for row in _payroll_records(session, period) if employee_id is None or row.employee_id == employee_id]
     ws.merge_cells("A1:AB1")
     ws.merge_cells("A2:G2")
     ws["A1"] = "FORM REKAP GAJI KARYAWAN"
@@ -864,7 +866,7 @@ def payroll_pdf(session: Session, period: str, employee_id: int | None = None, i
             pdf.showPage()
         has_page = True
         pdf.setPageSize(A4)
-        _draw_slip_content(pdf, record, session.get(Employee, record.employee_id), period)
+        _draw_slip_content(pdf, record, session.get(Employee, record.employee_id), period, session)
     pdf.save()
     stream.seek(0)
     return stream
@@ -951,6 +953,8 @@ def template_xlsx(template_name: str, session: Session | None = None) -> BytesIO
     notes.append(["Rule"])
     notes.append(["Jangan isi formula Excel. Isi value final saja. Formula tanpa cached value akan ditolak importer."])
     notes.append(["Header harus tetap sama seperti template."])
+    if template_name == "doctor-transactions":
+        notes.append(["Kolom doctor_name dan treatment_name harus memakai nama yang sama persis dengan master data agar tidak perlu review manual."])
     if template_name == "attendance":
         notes.append(["Kolom Libur: isi ya/true/1/libur/merah untuk libur. Isi tidak/no/0/masuk/kerja agar hari Minggu tetap dianggap hari kerja biasa. Kosong: Minggu otomatis libur."])
     if template_name == "attendance" and session:
@@ -964,9 +968,49 @@ def template_xlsx(template_name: str, session: Session | None = None) -> BytesIO
                 employee.name,
                 "aktif" if employee.is_active else "nonaktif",
             ])
-        for column in notes.columns:
-            max_length = max(len(str(cell.value or "")) for cell in column)
-            notes.column_dimensions[column[0].column_letter].width = min(max(max_length + 2, 12), 36)
+    if template_name == "doctor-transactions" and session:
+        notes.append([])
+        notes.append(["Referensi Dokter"])
+        notes.append(["doctor_id", "doctor_name"])
+        doctors = session.exec(select(Doctor).order_by(Doctor.name)).all()
+        for doctor in doctors:
+            notes.append([doctor.id, doctor.name])
+
+        notes.append([])
+        notes.append(["Referensi Treatment"])
+        notes.append([
+            "treatment_id",
+            "code",
+            "treatment_name",
+            "category",
+            "doctor_cost",
+            "specialist_cost",
+            "bhp_cost",
+            "service_fee",
+            "treatment_price",
+            "notes",
+            "status",
+        ])
+        treatments = session.exec(select(Treatment).order_by(Treatment.name)).all()
+        for treatment in treatments:
+            notes.append([
+                treatment.id,
+                treatment.code,
+                treatment.name,
+                treatment.category,
+                treatment.doctor_cost,
+                treatment.specialist_cost,
+                treatment.bhp_cost,
+                treatment.service_fee,
+                treatment.treatment_price,
+                treatment.notes,
+                "aktif" if treatment.is_active else "nonaktif",
+            ])
+
+    notes.freeze_panes = "A2"
+    for column in notes.columns:
+        max_length = max(len(str(cell.value or "")) for cell in column)
+        notes.column_dimensions[column[0].column_letter].width = min(max(max_length + 2, 12), 42)
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)

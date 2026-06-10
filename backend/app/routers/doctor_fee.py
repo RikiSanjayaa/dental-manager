@@ -9,9 +9,10 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlmodel import select
 
+from app.audit import record_audit
 from app.calculations import calculate_doctor_period, calculate_doctor_transaction
 from app.config import get_settings
-from app.dependencies import CurrentUser, SessionDep
+from app.dependencies import AdminUser, CurrentUser, SessionDep
 from app.importers import commit_doctor_transactions, preview_doctor_transactions
 from app.models import Doctor, DoctorFeeRule, DoctorPeriodSummary, DoctorTransaction, ImportFile, ImportStatus, PeriodStatus, Treatment
 from app.utils import parse_period
@@ -324,14 +325,36 @@ async def preview_transaction_import(session: SessionDep, _: CurrentUser, file: 
 
 
 @router.post("/doctor-transactions/import/{import_id}/commit")
-def commit_transaction_import(import_id: int, session: SessionDep, _: CurrentUser) -> dict:
-    return _commit_transaction_preview(session, import_id)
+def commit_transaction_import(import_id: int, session: SessionDep, user: CurrentUser) -> dict:
+    result = _commit_transaction_preview(session, import_id)
+    record_audit(
+        session,
+        user,
+        "import",
+        "doctor_transaction",
+        "Commit import riwayat perawatan.",
+        entity_id=import_id,
+        metadata={"created": result.get("created", 0), "updated": result.get("updated", 0), "invalid_rows": result.get("invalid_rows", 0)},
+    )
+    session.commit()
+    return result
 
 
 @router.post("/doctor-transactions/import")
-async def import_transactions(session: SessionDep, _: CurrentUser, file: UploadFile = File(...)) -> dict:
+async def import_transactions(session: SessionDep, user: CurrentUser, file: UploadFile = File(...)) -> dict:
     preview = await _build_transaction_preview(session, file)
-    return _commit_transaction_preview(session, preview["import_id"])
+    result = _commit_transaction_preview(session, preview["import_id"])
+    record_audit(
+        session,
+        user,
+        "import",
+        "doctor_transaction",
+        "Import langsung riwayat perawatan.",
+        entity_id=preview["import_id"],
+        metadata={"filename": file.filename, "created": result.get("created", 0), "updated": result.get("updated", 0)},
+    )
+    session.commit()
+    return result
 
 
 @router.post("/doctor-transactions/generate-random", response_model=RandomTransactionResult)
@@ -385,17 +408,27 @@ def generate_random_transactions(period: str, session: SessionDep, _: CurrentUse
 
 
 @router.post("/doctor-transactions", response_model=DoctorTransactionRead)
-def create_transaction(payload: DoctorTransactionInput, session: SessionDep, _: CurrentUser) -> DoctorTransactionRead:
+def create_transaction(payload: DoctorTransactionInput, session: SessionDep, user: CurrentUser) -> DoctorTransactionRead:
     _ensure_period_unlocked(session, payload.period or parse_period(payload.transaction_date))
     row = _prepare_transaction(session, payload)
     session.add(row)
     session.commit()
     session.refresh(row)
+    record_audit(
+        session,
+        user,
+        "create",
+        "doctor_transaction",
+        f"Menambahkan riwayat perawatan {row.patient_name}.",
+        entity_id=row.id,
+        metadata={"period": row.period, "doctor_id": row.doctor_id, "total_bill": row.total_bill_amount},
+    )
+    session.commit()
     return _transaction_read(session, row)
 
 
 @router.patch("/doctor-transactions/{item_id}", response_model=DoctorTransactionRead)
-def update_transaction(item_id: int, payload: DoctorTransactionInput, session: SessionDep, _: CurrentUser) -> DoctorTransactionRead:
+def update_transaction(item_id: int, payload: DoctorTransactionInput, session: SessionDep, user: CurrentUser) -> DoctorTransactionRead:
     row = session.get(DoctorTransaction, item_id)
     if not row:
         raise HTTPException(status_code=404, detail="Transaksi tidak ditemukan")
@@ -405,24 +438,55 @@ def update_transaction(item_id: int, payload: DoctorTransactionInput, session: S
     session.add(row)
     session.commit()
     session.refresh(row)
+    record_audit(
+        session,
+        user,
+        "update",
+        "doctor_transaction",
+        f"Memperbarui riwayat perawatan {row.patient_name}.",
+        entity_id=row.id,
+        metadata={"period": row.period, "doctor_id": row.doctor_id, "total_bill": row.total_bill_amount},
+    )
+    session.commit()
     return _transaction_read(session, row)
 
 
 @router.delete("/doctor-transactions/{item_id}")
-def delete_transaction(item_id: int, session: SessionDep, _: CurrentUser) -> dict:
+def delete_transaction(item_id: int, session: SessionDep, user: CurrentUser) -> dict:
     row = session.get(DoctorTransaction, item_id)
     if not row:
         raise HTTPException(status_code=404, detail="Transaksi tidak ditemukan")
     _ensure_period_unlocked(session, row.period)
+    metadata = {"period": row.period, "patient_name": row.patient_name, "doctor_id": row.doctor_id}
     session.delete(row)
+    record_audit(
+        session,
+        user,
+        "delete",
+        "doctor_transaction",
+        f"Menghapus riwayat perawatan {metadata['patient_name']}.",
+        entity_id=item_id,
+        metadata=metadata,
+    )
     session.commit()
     return {"id": item_id, "deleted": True}
 
 
 @router.post("/doctor-periods/{period}/calculate", response_model=list[DoctorPeriodSummaryRead])
-def calculate_period(period: str, session: SessionDep, _: CurrentUser) -> list[DoctorPeriodSummaryRead]:
+def calculate_period(period: str, session: SessionDep, user: CurrentUser) -> list[DoctorPeriodSummaryRead]:
     _ensure_period_unlocked(session, period)
-    return [_summary_read(session, row) for row in calculate_doctor_period(session, period)]
+    rows = calculate_doctor_period(session, period)
+    record_audit(
+        session,
+        user,
+        "calculate",
+        "doctor_period",
+        f"Menghitung ulang fee dokter periode {period}.",
+        entity_id=period,
+        metadata={"summary_count": len(rows)},
+    )
+    session.commit()
+    return [_summary_read(session, row) for row in rows]
 
 
 @router.get("/doctor-periods/{period}/summary", response_model=list[DoctorPeriodSummaryRead])
@@ -470,7 +534,7 @@ def period_overview(period: str, session: SessionDep, _: CurrentUser) -> DoctorP
 
 
 @router.post("/doctor-periods/{period}/lock", response_model=list[DoctorPeriodSummaryRead])
-def lock_period(period: str, session: SessionDep, _: CurrentUser) -> list[DoctorPeriodSummaryRead]:
+def lock_period(period: str, session: SessionDep, admin: AdminUser) -> list[DoctorPeriodSummaryRead]:
     rows = session.exec(select(DoctorPeriodSummary).where(DoctorPeriodSummary.period == period)).all()
     if not rows:
         raise HTTPException(status_code=409, detail="Hitung fee dokter sebelum lock periode.")
@@ -480,5 +544,14 @@ def lock_period(period: str, session: SessionDep, _: CurrentUser) -> list[Doctor
     for row in rows:
         row.status = PeriodStatus.LOCKED
         session.add(row)
+    record_audit(
+        session,
+        admin,
+        "lock",
+        "doctor_period",
+        f"Mengunci fee dokter periode {period}.",
+        entity_id=period,
+        metadata={"summary_count": len(rows)},
+    )
     session.commit()
     return [_summary_read(session, row) for row in rows]

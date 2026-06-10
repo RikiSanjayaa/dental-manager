@@ -1,17 +1,20 @@
-from datetime import date, time
+from datetime import date, datetime, time
 
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import select
 
+from app.audit import record_audit
 from app.calculations import calculate_attendance_record, calculate_payroll_period, calculate_payroll_record, effective_base_salary
 from app.config import get_settings
-from app.dependencies import CurrentUser, SessionDep
+from app.dependencies import AdminUser, CurrentUser, SessionDep
 from app.importers import commit_attendance, preview_attendance
-from app.models import AttendanceHoliday, AttendanceRecord, AttendanceRule, Employee, PayrollRecord, PayrollRule, PeriodStatus
+from app.models import AuditLog, AttendanceHoliday, AttendanceRecord, AttendanceRule, Doctor, DoctorTransaction, Employee, PayrollRecord, PayrollRule, PeriodStatus, User, UserRole
+from app.reports import payroll_slip_pdf, payroll_xlsx
 from app.utils import normalize_text, parse_period, parse_time
 
 router = APIRouter(tags=["payroll"])
@@ -54,6 +57,10 @@ class PayrollAdjustmentInput(BaseModel):
     needs_review: bool = False
 
 
+class AttendanceProtestInput(BaseModel):
+    reason: str
+
+
 def default_attendance_rule(session: SessionDep) -> AttendanceRule:
     rule = session.exec(select(AttendanceRule).where(AttendanceRule.is_default == True)).first()  # noqa: E712
     return rule or AttendanceRule(name="Fallback", is_default=True)
@@ -62,6 +69,77 @@ def default_attendance_rule(session: SessionDep) -> AttendanceRule:
 def default_payroll_rule(session: SessionDep) -> PayrollRule:
     rule = session.exec(select(PayrollRule).where(PayrollRule.is_default == True)).first()  # noqa: E712
     return rule or PayrollRule(name="Fallback", is_default=True)
+
+
+def operator_employee(session: SessionDep, user: User) -> Employee:
+    if not user.employee_id:
+        raise HTTPException(status_code=409, detail="Akun operator belum terhubung ke master data karyawan.")
+    employee = session.get(Employee, user.employee_id)
+    if not employee:
+        raise HTTPException(status_code=404, detail="Master data karyawan operator tidak ditemukan.")
+    return employee
+
+
+def operator_payroll_payload(session: SessionDep, period: str, user: User) -> dict:
+    employee = operator_employee(session, user)
+    overview = payroll_overview_payload(session, period)
+    summary = next((item for item in overview["summaries"] if item["employee_id"] == employee.id), None)
+    attendance_rows = session.exec(
+        select(AttendanceRecord).where(AttendanceRecord.period == period, AttendanceRecord.employee_id == employee.id)
+    ).all()
+    overtime_rows = [row for row in attendance_rows if row.overtime_minutes > 0]
+    treatment_rows = session.exec(select(DoctorTransaction).where(DoctorTransaction.period == period)).all()
+    recent_treatments = session.exec(
+        select(DoctorTransaction).where(DoctorTransaction.period == period).order_by(DoctorTransaction.transaction_date.desc(), DoctorTransaction.id.desc()).limit(5)
+    ).all()
+    doctors = {row.id: row for row in session.exec(select(Doctor)).all()}
+    audit_rows = session.exec(
+        select(AuditLog).where(AuditLog.actor_id == user.id).order_by(AuditLog.created_at.desc()).limit(5)
+    ).all()
+    return {
+        "period": period,
+        "employee": {
+            "id": employee.id,
+            "name": employee.name,
+            "position": employee.position,
+            "attendance_id": employee.attendance_id,
+            "bank_name": employee.bank_name,
+            "account_name": employee.account_name,
+            "account_number": employee.account_number,
+        },
+        "payroll": summary,
+        "attendance_count": len(attendance_rows),
+        "attendance_review_count": sum(1 for row in attendance_rows if row.needs_review),
+        "protest_count": sum(1 for row in attendance_rows if row.protest_note),
+        "overtime_count": len(overtime_rows),
+        "overtime_minutes": sum(row.overtime_minutes for row in overtime_rows),
+        "treatment_count": len(treatment_rows),
+        "treatment_review_count": sum(1 for row in treatment_rows if row.needs_review),
+        "recent_treatments": [
+            {
+                "id": row.id,
+                "transaction_date": row.transaction_date,
+                "doctor_name": doctors.get(row.doctor_id).name if doctors.get(row.doctor_id) else f"Dokter #{row.doctor_id}",
+                "patient_name": row.patient_name,
+                "treatment_name": row.treatment_name_snapshot,
+                "total_bill_amount": row.total_bill_amount,
+                "needs_review": row.needs_review,
+            }
+            for row in recent_treatments
+        ],
+        "recent_audit_logs": [
+            {
+                "id": row.id,
+                "action": row.action,
+                "entity_type": row.entity_type,
+                "description": row.description,
+                "created_at": row.created_at,
+            }
+            for row in audit_rows
+        ],
+        "recent_attendance": sorted(attendance_rows, key=lambda row: (row.work_date, row.id or 0), reverse=True)[:5],
+        "overtime_rows": sorted(overtime_rows, key=lambda row: (row.work_date, row.id or 0)),
+    }
 
 
 def payroll_status(rows: list[PayrollRecord], attendance_count: int) -> str:
@@ -292,14 +370,14 @@ def enrich_attendance_preview(session: SessionDep, preview: dict) -> dict:
 
 
 @router.post("/attendance/import-preview")
-async def attendance_preview(session: SessionDep, _: CurrentUser, file: UploadFile = File(...)) -> dict:
+async def attendance_preview(session: SessionDep, _: AdminUser, file: UploadFile = File(...)) -> dict:
     path = get_settings().upload_dir / f"attendance-preview-{file.filename}"
     path.write_bytes(await file.read())
     return enrich_attendance_preview(session, preview_attendance(path))
 
 
 @router.post("/attendance/import")
-async def import_attendance(session: SessionDep, _: CurrentUser, file: UploadFile = File(...)) -> dict:
+async def import_attendance(session: SessionDep, admin: AdminUser, file: UploadFile = File(...)) -> dict:
     path = get_settings().upload_dir / f"{uuid4().hex}{Path(file.filename or 'attendance.xlsx').suffix or '.xlsx'}"
     path.write_bytes(await file.read())
     preview = preview_attendance(path)
@@ -307,6 +385,15 @@ async def import_attendance(session: SessionDep, _: CurrentUser, file: UploadFil
     for period in periods:
         ensure_payroll_open(session, period)
     result = commit_attendance(session, preview["data"]["attendance"])
+    record_audit(
+        session,
+        admin,
+        "import",
+        "attendance_record",
+        "Import data absensi.",
+        metadata={"filename": file.filename, "created": result.get("created", 0), "updated": result.get("updated", 0)},
+    )
+    session.commit()
     return {
         "target": "attendance",
         **result,
@@ -319,7 +406,7 @@ async def import_attendance(session: SessionDep, _: CurrentUser, file: UploadFil
 @router.get("/attendance-records", response_model=list[AttendanceRecord])
 def list_attendance(
     session: SessionDep,
-    _: CurrentUser,
+    user: CurrentUser,
     period: str | None = None,
     employee_id: int | None = None,
     review: bool | None = None,
@@ -364,6 +451,10 @@ def list_attendance(
         session.commit()
     if period:
         rows = [row for row in rows if row.period == period]
+    if user.role == UserRole.OPERATOR:
+        employee = operator_employee(session, user)
+        rows = [row for row in rows if row.employee_id == employee.id]
+        employee_id = None
     if employee_id:
         rows = [row for row in rows if row.employee_id == employee_id]
     if review is not None:
@@ -371,8 +462,40 @@ def list_attendance(
     return rows
 
 
+@router.post("/attendance-records/{item_id}/protest", response_model=AttendanceRecord)
+def protest_attendance(item_id: int, payload: AttendanceProtestInput, session: SessionDep, user: CurrentUser) -> AttendanceRecord:
+    reason = payload.reason.strip()
+    if len(reason) < 5:
+        raise HTTPException(status_code=422, detail="Alasan protes minimal 5 karakter.")
+    row = session.get(AttendanceRecord, item_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Data absensi tidak ditemukan.")
+    if user.role == UserRole.OPERATOR:
+        employee = operator_employee(session, user)
+        if row.employee_id != employee.id:
+            raise HTTPException(status_code=403, detail="Operator hanya bisa memprotes absensi sendiri.")
+    row.needs_review = True
+    row.protest_note = reason
+    row.protest_by_user_id = user.id
+    row.protest_by_name = user.full_name
+    row.protested_at = datetime.utcnow()
+    session.add(row)
+    record_audit(
+        session,
+        user,
+        "protest",
+        "attendance_record",
+        f"Protes absensi {row.employee_name_snapshot}.",
+        entity_id=row.id,
+        metadata={"period": row.period, "work_date": row.work_date.isoformat(), "reason": reason},
+    )
+    session.commit()
+    session.refresh(row)
+    return row
+
+
 @router.post("/attendance-records", response_model=AttendanceRecord)
-def create_attendance(payload: AttendanceInput, session: SessionDep, _: CurrentUser) -> AttendanceRecord:
+def create_attendance(payload: AttendanceInput, session: SessionDep, admin: AdminUser) -> AttendanceRecord:
     data = payload.model_dump()
     data["period"] = data.get("period") or parse_period(payload.work_date)
     ensure_payroll_open(session, data["period"])
@@ -384,11 +507,22 @@ def create_attendance(payload: AttendanceInput, session: SessionDep, _: CurrentU
     session.add(row)
     session.commit()
     session.refresh(row)
+    record_audit(
+        session,
+        admin,
+        "create",
+        "attendance_record",
+        f"Menambahkan absensi {row.employee_name_snapshot}.",
+        entity_id=row.id,
+        metadata={"period": row.period, "work_date": row.work_date.isoformat()},
+    )
+    session.commit()
+    session.refresh(row)
     return row
 
 
 @router.patch("/attendance-records/{item_id}", response_model=AttendanceRecord)
-def update_attendance(item_id: int, payload: AttendanceInput, session: SessionDep, _: CurrentUser) -> AttendanceRecord:
+def update_attendance(item_id: int, payload: AttendanceInput, session: SessionDep, admin: AdminUser) -> AttendanceRecord:
     row = session.get(AttendanceRecord, item_id)
     if not row:
         raise HTTPException(status_code=404, detail="Data absensi tidak ditemukan.")
@@ -405,38 +539,113 @@ def update_attendance(item_id: int, payload: AttendanceInput, session: SessionDe
     session.add(row)
     session.commit()
     session.refresh(row)
+    record_audit(
+        session,
+        admin,
+        "update",
+        "attendance_record",
+        f"Memperbarui absensi {row.employee_name_snapshot}.",
+        entity_id=row.id,
+        metadata={"period": row.period, "work_date": row.work_date.isoformat()},
+    )
+    session.commit()
+    session.refresh(row)
     return row
 
 
 @router.delete("/attendance-records/{item_id}")
-def delete_attendance(item_id: int, session: SessionDep, _: CurrentUser) -> dict[str, str]:
+def delete_attendance(item_id: int, session: SessionDep, admin: AdminUser) -> dict[str, str]:
     row = session.get(AttendanceRecord, item_id)
     if not row:
         raise HTTPException(status_code=404, detail="Data absensi tidak ditemukan.")
     ensure_payroll_open(session, row.period)
+    metadata = {"period": row.period, "employee_name": row.employee_name_snapshot, "work_date": row.work_date.isoformat()}
     session.delete(row)
+    record_audit(
+        session,
+        admin,
+        "delete",
+        "attendance_record",
+        f"Menghapus absensi {metadata['employee_name']}.",
+        entity_id=item_id,
+        metadata=metadata,
+    )
     session.commit()
     return {"status": "ok"}
 
 
 @router.post("/payroll-periods/{period}/calculate", response_model=list[PayrollRecord])
-def calculate_period(period: str, session: SessionDep, _: CurrentUser) -> list[PayrollRecord]:
+def calculate_period(period: str, session: SessionDep, admin: AdminUser) -> list[PayrollRecord]:
     ensure_payroll_open(session, period)
-    return calculate_payroll_period(session, period)
+    rows = calculate_payroll_period(session, period)
+    record_audit(
+        session,
+        admin,
+        "calculate",
+        "payroll_period",
+        f"Menghitung ulang payroll periode {period}.",
+        entity_id=period,
+        metadata={"record_count": len(rows)},
+    )
+    session.commit()
+    for row in rows:
+        session.refresh(row)
+    return rows
 
 
 @router.get("/payroll-periods/{period}/summary", response_model=list[PayrollRecord])
-def payroll_summary(period: str, session: SessionDep, _: CurrentUser) -> list[PayrollRecord]:
+def payroll_summary(period: str, session: SessionDep, _: AdminUser) -> list[PayrollRecord]:
     return session.exec(select(PayrollRecord).where(PayrollRecord.period == period)).all()
 
 
 @router.get("/payroll-periods/{period}/overview")
-def payroll_overview(period: str, session: SessionDep, _: CurrentUser) -> dict:
+def payroll_overview(period: str, session: SessionDep, _: AdminUser) -> dict:
     return payroll_overview_payload(session, period)
 
 
+@router.get("/me/dashboard")
+def operator_dashboard(period: str, session: SessionDep, user: CurrentUser) -> dict:
+    return operator_payroll_payload(session, period, user)
+
+
+@router.get("/me/payroll/{period}")
+def my_payroll(period: str, session: SessionDep, user: CurrentUser) -> dict:
+    return operator_payroll_payload(session, period, user)
+
+
+@router.get("/me/payroll/{period}/export")
+def export_my_payroll(period: str, format: str, session: SessionDep, user: CurrentUser) -> StreamingResponse:
+    employee = operator_employee(session, user)
+    normalized = format.lower()
+    if normalized == "xlsx":
+        stream = payroll_xlsx(session, period, employee_id=employee.id)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"payroll-saya-{period}.xlsx"
+    elif normalized == "pdf":
+        stream = payroll_slip_pdf(session, period, employee.id or 0)
+        media_type = "application/pdf"
+        filename = f"slip-gaji-{period}-{employee.id}.pdf"
+    else:
+        raise HTTPException(status_code=400, detail="Format payroll pribadi mendukung xlsx atau pdf.")
+    record_audit(
+        session,
+        user,
+        "export",
+        "payroll_record",
+        f"Download payroll pribadi periode {period}.",
+        entity_id=period,
+        metadata={"format": normalized, "employee_id": employee.id},
+    )
+    session.commit()
+    return StreamingResponse(
+        stream,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/payroll-periods/{period}/overtime", response_model=list[AttendanceRecord])
-def payroll_overtime(period: str, session: SessionDep, _: CurrentUser, employee_id: int | None = None) -> list[AttendanceRecord]:
+def payroll_overtime(period: str, session: SessionDep, _: AdminUser, employee_id: int | None = None) -> list[AttendanceRecord]:
     statement = select(AttendanceRecord).where(AttendanceRecord.period == period, AttendanceRecord.overtime_minutes > 0)
     if employee_id:
         statement = statement.where(AttendanceRecord.employee_id == employee_id)
@@ -445,12 +654,12 @@ def payroll_overtime(period: str, session: SessionDep, _: CurrentUser, employee_
 
 
 @router.get("/payroll-periods/{period}/slips/{employee_id}", response_model=PayrollRecord | None)
-def payroll_slip(period: str, employee_id: int, session: SessionDep, _: CurrentUser) -> PayrollRecord | None:
+def payroll_slip(period: str, employee_id: int, session: SessionDep, _: AdminUser) -> PayrollRecord | None:
     return session.exec(select(PayrollRecord).where(PayrollRecord.period == period, PayrollRecord.employee_id == employee_id)).first()
 
 
 @router.patch("/payroll-records/{item_id}", response_model=PayrollRecord)
-def update_payroll_record(item_id: int, payload: PayrollAdjustmentInput, session: SessionDep, _: CurrentUser) -> PayrollRecord:
+def update_payroll_record(item_id: int, payload: PayrollAdjustmentInput, session: SessionDep, admin: AdminUser) -> PayrollRecord:
     row = session.get(PayrollRecord, item_id)
     if not row:
         raise HTTPException(status_code=404, detail="Data payroll tidak ditemukan.")
@@ -470,11 +679,22 @@ def update_payroll_record(item_id: int, payload: PayrollAdjustmentInput, session
     session.add(row)
     session.commit()
     session.refresh(row)
+    record_audit(
+        session,
+        admin,
+        "update",
+        "payroll_record",
+        f"Memperbarui adjustment payroll karyawan #{row.employee_id}.",
+        entity_id=row.id,
+        metadata={"period": row.period, "employee_id": row.employee_id, "net_salary": row.net_salary},
+    )
+    session.commit()
+    session.refresh(row)
     return row
 
 
 @router.post("/payroll-periods/{period}/lock", response_model=list[PayrollRecord])
-def lock_period(period: str, session: SessionDep, _: CurrentUser) -> list[PayrollRecord]:
+def lock_period(period: str, session: SessionDep, admin: AdminUser) -> list[PayrollRecord]:
     rows = session.exec(select(PayrollRecord).where(PayrollRecord.period == period)).all()
     if not rows:
         raise HTTPException(status_code=409, detail="Payroll belum dihitung.")
@@ -489,5 +709,16 @@ def lock_period(period: str, session: SessionDep, _: CurrentUser) -> list[Payrol
     for row in rows:
         row.status = PeriodStatus.LOCKED
         session.add(row)
+    record_audit(
+        session,
+        admin,
+        "lock",
+        "payroll_period",
+        f"Mengunci payroll periode {period}.",
+        entity_id=period,
+        metadata={"record_count": len(rows)},
+    )
     session.commit()
+    for row in rows:
+        session.refresh(row)
     return rows
