@@ -1,7 +1,11 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Banner } from "@cloudflare/kumo/components/banner";
 import { Button } from "@cloudflare/kumo/components/button";
-import { Chart, ChartPalette, type KumoChartOption } from "@cloudflare/kumo/components/chart";
+import {
+  Chart,
+  ChartPalette,
+  type KumoChartOption,
+} from "@cloudflare/kumo/components/chart";
 import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
 import { Field } from "@cloudflare/kumo/components/field";
@@ -131,7 +135,9 @@ const statusLabel: Record<PeriodStatus, string> = {
 };
 
 function includesText(value: unknown, query: string) {
-  return String(value ?? "").toLowerCase().includes(query.trim().toLowerCase());
+  return String(value ?? "")
+    .toLowerCase()
+    .includes(query.trim().toLowerCase());
 }
 
 function previousPeriod(period: string) {
@@ -152,7 +158,8 @@ function timeRange(start?: string | null, end?: string | null) {
 function statusBadge(status: PeriodStatus | string) {
   if (status === "locked") return <Badge variant="success">locked</Badge>;
   if (status === "draft") return <Badge variant="info">draft</Badge>;
-  if (status === "not_calculated") return <Badge variant="secondary">belum dihitung</Badge>;
+  if (status === "not_calculated")
+    return <Badge variant="secondary">belum dihitung</Badge>;
   return <Badge variant="secondary">{status}</Badge>;
 }
 
@@ -203,11 +210,17 @@ export function PayrollPage() {
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(
+    null,
+  );
   const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
   const [unlockConfirmOpen, setUnlockConfirmOpen] = useState(false);
   const [unlockPassword, setUnlockPassword] = useState("");
-  const [editor, setEditor] = useState<{ open: boolean; row?: PayrollSummary; values: AdjustmentValues }>({
+  const [editor, setEditor] = useState<{
+    open: boolean;
+    row?: PayrollSummary;
+    values: AdjustmentValues;
+  }>({
     open: false,
     values: valuesFromSummary({
       id: 0,
@@ -252,34 +265,56 @@ export function PayrollPage() {
   const previous = previousPeriod(period);
   const { data: previousOverview } = useQuery({
     queryKey: ["payroll-overview", previous],
-    queryFn: () => api<PayrollOverview>(`/payroll-periods/${previous}/overview`),
+    queryFn: () =>
+      api<PayrollOverview>(`/payroll-periods/${previous}/overview`),
   });
-  const selectedQuery = selectedEmployeeId ? `?employee_id=${selectedEmployeeId}` : "";
+  const selectedQuery = selectedEmployeeId
+    ? `?employee_id=${selectedEmployeeId}`
+    : "";
   const { data: overtimeRows } = useQuery({
     queryKey: ["payroll-overtime", period, selectedEmployeeId],
-    queryFn: () => api<OvertimeRecord[]>(`/payroll-periods/${period}/overtime${selectedQuery}`),
+    queryFn: () =>
+      api<OvertimeRecord[]>(
+        `/payroll-periods/${period}/overtime${selectedQuery}`,
+      ),
   });
 
   const calculate = useMutation({
-    mutationFn: () => api(`/payroll-periods/${period}/calculate`, { method: "POST" }),
+    mutationFn: () =>
+      api(`/payroll-periods/${period}/calculate`, { method: "POST" }),
     onSuccess: async () => {
       toasts.add({ title: "Payroll selesai dihitung", variant: "success" });
-      await queryClient.invalidateQueries({ queryKey: ["payroll-overview", period] });
-      await queryClient.invalidateQueries({ queryKey: ["payroll-overtime", period] });
+      await queryClient.invalidateQueries({
+        queryKey: ["payroll-overview", period],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["payroll-overtime", period],
+      });
     },
     onError: (error) =>
-      toasts.add({ title: "Payroll gagal dihitung", description: error instanceof Error ? error.message : undefined, variant: "error" }),
+      toasts.add({
+        title: "Payroll gagal dihitung",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      }),
   });
 
   const lock = useMutation({
-    mutationFn: () => api(`/payroll-periods/${period}/lock`, { method: "POST" }),
+    mutationFn: () =>
+      api(`/payroll-periods/${period}/lock`, { method: "POST" }),
     onSuccess: async () => {
       setLockConfirmOpen(false);
       toasts.add({ title: "Periode payroll dikunci", variant: "success" });
-      await queryClient.invalidateQueries({ queryKey: ["payroll-overview", period] });
+      await queryClient.invalidateQueries({
+        queryKey: ["payroll-overview", period],
+      });
     },
     onError: (error) =>
-      toasts.add({ title: "Periode gagal dikunci", description: error instanceof Error ? error.message : undefined, variant: "error" }),
+      toasts.add({
+        title: "Periode gagal dikunci",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      }),
   });
 
   const unlock = useMutation({
@@ -291,8 +326,13 @@ export function PayrollPage() {
     onSuccess: async () => {
       setUnlockConfirmOpen(false);
       setUnlockPassword("");
-      toasts.add({ title: "Periode payroll dibuka kuncinya", variant: "success" });
-      await queryClient.invalidateQueries({ queryKey: ["payroll-overview", period] });
+      toasts.add({
+        title: "Periode payroll dibuka kuncinya",
+        variant: "success",
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["payroll-overview", period],
+      });
     },
     onError: (error) =>
       toasts.add({
@@ -305,7 +345,9 @@ export function PayrollPage() {
   const saveAdjustment = useMutation({
     mutationFn: () => {
       if (!editor.row?.id) {
-        throw new Error("Payroll karyawan ini belum dihitung. Jalankan Hitung Ulang dulu sebelum edit adjustment.");
+        throw new Error(
+          "Payroll karyawan ini belum dihitung. Jalankan Hitung Ulang dulu sebelum edit adjustment.",
+        );
       }
       return api<PayrollSummary>(`/payroll-records/${editor.row.id}`, {
         method: "PATCH",
@@ -315,10 +357,16 @@ export function PayrollPage() {
     onSuccess: async () => {
       toasts.add({ title: "Adjustment payroll disimpan", variant: "success" });
       setEditor((current) => ({ ...current, open: false }));
-      await queryClient.invalidateQueries({ queryKey: ["payroll-overview", period] });
+      await queryClient.invalidateQueries({
+        queryKey: ["payroll-overview", period],
+      });
     },
     onError: (error) =>
-      toasts.add({ title: "Adjustment gagal disimpan", description: error instanceof Error ? error.message : undefined, variant: "error" }),
+      toasts.add({
+        title: "Adjustment gagal disimpan",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      }),
   });
 
   const filteredSummaries = useMemo(() => {
@@ -326,19 +374,27 @@ export function PayrollPage() {
       .filter((row) => {
         const matchesSearch =
           !search ||
-          [row.employee_name, row.position, row.bank_name, row.account_name, row.account_number].some((value) =>
-            includesText(value, search),
-          );
+          [
+            row.employee_name,
+            row.position,
+            row.bank_name,
+            row.account_name,
+            row.account_number,
+          ].some((value) => includesText(value, search));
         const matchesStatus =
           statusFilter === "all" ||
-          (statusFilter === "review" ? row.needs_review : row.status === statusFilter);
+          (statusFilter === "review"
+            ? row.needs_review
+            : row.status === statusFilter);
         return matchesSearch && matchesStatus;
       })
       .sort((left, right) => left.employee_id - right.employee_id);
   }, [overview?.summaries, search, statusFilter]);
 
   const selectedSummary = useMemo(
-    () => filteredSummaries.find((row) => row.employee_id === selectedEmployeeId) ?? filteredSummaries[0],
+    () =>
+      filteredSummaries.find((row) => row.employee_id === selectedEmployeeId) ??
+      filteredSummaries[0],
     [filteredSummaries, selectedEmployeeId],
   );
 
@@ -347,30 +403,80 @@ export function PayrollPage() {
       setSelectedEmployeeId(null);
       return;
     }
-    if (!selectedEmployeeId || !filteredSummaries.some((row) => row.employee_id === selectedEmployeeId)) {
+    if (
+      !selectedEmployeeId ||
+      !filteredSummaries.some((row) => row.employee_id === selectedEmployeeId)
+    ) {
       setSelectedEmployeeId(filteredSummaries[0].employee_id);
     }
   }, [filteredSummaries, selectedEmployeeId]);
 
-  const hasPayrollRows = useMemo(() => (overview?.summaries ?? []).some((row) => row.id), [overview?.summaries]);
+  const hasPayrollRows = useMemo(
+    () => (overview?.summaries ?? []).some((row) => row.id),
+    [overview?.summaries],
+  );
 
   const banner = useMemo(() => {
-    if (!overview || overview.status === "empty") return { variant: "secondary" as const, description: "Belum ada data absensi untuk periode ini." };
-    if (overview.attendance_count === 0) return { variant: "alert" as const, description: "Belum ada data absensi untuk periode ini. Rekap karyawan tetap ditampilkan, tetapi lembur dan potongan absensi akan 0 sampai absensi diimport." };
-    if (overview.attendance_review_count > 0 || overview.payroll_review_count > 0) {
-      return { variant: "alert" as const, description: `${overview.attendance_review_count + overview.payroll_review_count} data masih perlu review sebelum periode bisa dikunci.` };
+    if (!overview || overview.status === "empty")
+      return {
+        variant: "secondary" as const,
+        description: "Belum ada data absensi untuk periode ini.",
+      };
+    if (overview.attendance_count === 0)
+      return {
+        variant: "alert" as const,
+        description:
+          "Belum ada data absensi untuk periode ini. Rekap karyawan tetap ditampilkan, tetapi lembur dan potongan absensi akan 0 sampai absensi diimport.",
+      };
+    if (
+      overview.attendance_review_count > 0 ||
+      overview.payroll_review_count > 0
+    ) {
+      return {
+        variant: "alert" as const,
+        description: `${overview.attendance_review_count + overview.payroll_review_count} data masih perlu review sebelum periode bisa dikunci.`,
+      };
     }
-    if (overview.status === "locked") return { variant: "default" as const, description: "Periode payroll ini sudah locked/final." };
-    if (overview.status === "draft") return { variant: "secondary" as const, description: "Draft payroll sudah dihitung. Cek adjustment, lembur, lalu lock jika sudah final." };
-    return { variant: "secondary" as const, description: "Absensi sudah tersedia. Jalankan Hitung Ulang untuk membuat payroll." };
+    if (overview.status === "locked")
+      return {
+        variant: "default" as const,
+        description: "Periode payroll ini sudah locked/final.",
+      };
+    if (overview.status === "draft")
+      return {
+        variant: "secondary" as const,
+        description:
+          "Draft payroll sudah dihitung. Cek adjustment, lembur, lalu lock jika sudah final.",
+      };
+    return {
+      variant: "secondary" as const,
+      description:
+        "Absensi sudah tersedia. Jalankan Hitung Ulang untuk membuat payroll.",
+    };
   }, [overview]);
 
   const comparisonItems = useMemo(
     () => [
-      { label: "Gross", current: overview?.total_gross_salary ?? 0, previous: previousOverview?.total_gross_salary ?? 0 },
-      { label: "Potongan", current: overview?.total_deduction ?? 0, previous: previousOverview?.total_deduction ?? 0 },
-      { label: "Lembur", current: overview?.total_overtime ?? 0, previous: previousOverview?.total_overtime ?? 0 },
-      { label: "Transfer", current: overview?.total_net_salary ?? 0, previous: previousOverview?.total_net_salary ?? 0 },
+      {
+        label: "Gross",
+        current: overview?.total_gross_salary ?? 0,
+        previous: previousOverview?.total_gross_salary ?? 0,
+      },
+      {
+        label: "Potongan",
+        current: overview?.total_deduction ?? 0,
+        previous: previousOverview?.total_deduction ?? 0,
+      },
+      {
+        label: "Lembur",
+        current: overview?.total_overtime ?? 0,
+        previous: previousOverview?.total_overtime ?? 0,
+      },
+      {
+        label: "Transfer",
+        current: overview?.total_net_salary ?? 0,
+        previous: previousOverview?.total_net_salary ?? 0,
+      },
     ],
     [overview, previousOverview],
   );
@@ -378,23 +484,55 @@ export function PayrollPage() {
   const chartOptions = useMemo<KumoChartOption>(
     () => ({
       color: [ChartPalette.categorical(0), ChartPalette.semantic("Success")],
-      legend: { top: 0, right: 0, textStyle: { color: ChartPalette.text("secondary"), fontSize: 11 } },
+      legend: {
+        top: 0,
+        right: 0,
+        textStyle: { color: ChartPalette.text("secondary"), fontSize: 11 },
+      },
       grid: { left: 86, right: 24, top: 34, bottom: 8 },
       tooltip: {
         trigger: "axis",
         axisPointer: { type: "shadow" },
         dangerousHtmlFormatter: (params) => {
           const rows = (Array.isArray(params) ? params : [params])
-            .map((item) => `${item.marker ?? ""} ${item.seriesName}: <strong>${rupiah.format(Number(item.value ?? 0))}</strong>`)
+            .map(
+              (item) =>
+                `${item.marker ?? ""} ${item.seriesName}: <strong>${rupiah.format(Number(item.value ?? 0))}</strong>`,
+            )
             .join("<br/>");
           return `${(Array.isArray(params) ? params[0] : params).name}<br/>${rows}`;
         },
       },
-      xAxis: { type: "value", axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.18)" } } },
-      yAxis: { type: "category", inverse: true, data: comparisonItems.map((item) => item.label), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: ChartPalette.text("primary"), fontSize: 12 } },
+      xAxis: {
+        type: "value",
+        axisLabel: { show: false },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.18)" } },
+      },
+      yAxis: {
+        type: "category",
+        inverse: true,
+        data: comparisonItems.map((item) => item.label),
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: ChartPalette.text("primary"), fontSize: 12 },
+      },
       series: [
-        { name: `Bulan lalu (${previous})`, type: "bar", barWidth: 10, data: comparisonItems.map((item) => item.previous), itemStyle: { borderRadius: [0, 4, 4, 0] } },
-        { name: `Bulan ini (${period})`, type: "bar", barWidth: 10, data: comparisonItems.map((item) => item.current), itemStyle: { borderRadius: [0, 4, 4, 0] } },
+        {
+          name: `Bulan lalu (${previous})`,
+          type: "bar",
+          barWidth: 10,
+          data: comparisonItems.map((item) => item.previous),
+          itemStyle: { borderRadius: [0, 4, 4, 0] },
+        },
+        {
+          name: `Bulan ini (${period})`,
+          type: "bar",
+          barWidth: 10,
+          data: comparisonItems.map((item) => item.current),
+          itemStyle: { borderRadius: [0, 4, 4, 0] },
+        },
       ],
     }),
     [comparisonItems, period, previous],
@@ -402,7 +540,11 @@ export function PayrollPage() {
 
   function openAdjustment(row: PayrollSummary) {
     if (!row.id) {
-      toasts.add({ title: "Payroll belum dihitung", description: "Jalankan Hitung Ulang dulu sebelum edit adjustment.", variant: "error" });
+      toasts.add({
+        title: "Payroll belum dihitung",
+        description: "Jalankan Hitung Ulang dulu sebelum edit adjustment.",
+        variant: "error",
+      });
       return;
     }
     setEditor({ open: true, row, values: valuesFromSummary(row) });
@@ -410,22 +552,34 @@ export function PayrollPage() {
 
   async function exportWorkbook() {
     if (!hasPayrollRows) return;
-    await downloadFile(`/reports/payroll?period=${period}&format=xlsx`, `payroll-${period}.xlsx`);
+    await downloadFile(
+      `/reports/payroll?period=${period}&format=xlsx`,
+      `payroll-${period}.xlsx`,
+    );
   }
 
   async function exportPdf() {
     if (!hasPayrollRows) return;
-    await downloadFile(`/reports/payroll?period=${period}&format=pdf`, `payroll-${period}.pdf`);
+    await downloadFile(
+      `/reports/payroll?period=${period}&format=pdf`,
+      `payroll-${period}.pdf`,
+    );
   }
 
   async function exportPdfZip() {
     if (!hasPayrollRows) return;
-    await downloadFile(`/reports/payroll?period=${period}&format=zip`, `payroll-${period}-per-karyawan.zip`);
+    await downloadFile(
+      `/reports/payroll?period=${period}&format=zip`,
+      `payroll-${period}-per-karyawan.zip`,
+    );
   }
 
   async function exportSlip(row: PayrollSummary) {
     if (!row.id) return;
-    await downloadFile(`/reports/payroll/${period}/slips/${row.employee_id}.pdf`, `slip-gaji-${period}-${row.employee_name}.pdf`);
+    await downloadFile(
+      `/reports/payroll/${period}/slips/${row.employee_id}.pdf`,
+      `slip-gaji-${period}-${row.employee_name}.pdf`,
+    );
   }
 
   return (
@@ -433,17 +587,36 @@ export function PayrollPage() {
       <div className="flex items-start justify-between gap-4 py-4">
         <div>
           <h1 className="text-2xl font-semibold">Payroll</h1>
-          <p className="mt-1 text-sm text-gray-600">Review gaji, lembur, adjustment, lock periode, dan export slip.</p>
+          <p className="mt-1 text-sm text-gray-600">
+            Review gaji, lembur, adjustment, lock periode, dan export slip.
+          </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Input className="w-40" aria-label="Periode payroll" type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
-          <Button variant="secondary" icon={<Calculator size={18} />} loading={calculate.isPending} disabled={overview?.status === "locked"} onClick={() => calculate.mutate()}>Hitung Ulang</Button>
+          <Input
+            className="w-40"
+            aria-label="Periode payroll"
+            type="month"
+            value={period}
+            onChange={(event) => setPeriod(event.target.value)}
+          />
+          <Button
+            variant="secondary"
+            icon={<Calculator size={18} />}
+            loading={calculate.isPending}
+            disabled={overview?.status === "locked"}
+            onClick={() => calculate.mutate()}
+          >
+            Hitung Ulang
+          </Button>
           {overview?.status === "locked" ? (
             <Button
               variant="secondary"
               icon={<LockOpen size={18} />}
               loading={unlock.isPending}
-              onClick={() => { setUnlockPassword(""); setUnlockConfirmOpen(true); }}
+              onClick={() => {
+                setUnlockPassword("");
+                setUnlockConfirmOpen(true);
+              }}
             >
               Unlock Periode
             </Button>
@@ -452,18 +625,61 @@ export function PayrollPage() {
               variant="secondary"
               icon={<Lock size={18} />}
               loading={lock.isPending}
-              disabled={overview?.status === "not_calculated" || overview?.status === "empty" || overview?.attendance_review_count !== 0 || overview?.payroll_review_count !== 0 || !hasPayrollRows}
+              disabled={
+                overview?.status === "not_calculated" ||
+                overview?.status === "empty" ||
+                overview?.attendance_review_count !== 0 ||
+                overview?.payroll_review_count !== 0 ||
+                !hasPayrollRows
+              }
               onClick={() => setLockConfirmOpen(true)}
             >
               Lock Periode
             </Button>
           )}
-          <Button variant="primary" icon={<FileSpreadsheet size={18} />} style={{ background: "#059669", color: "#ffffff", borderColor: "#047857" }} disabled={!hasPayrollRows} onClick={exportWorkbook}>Export XLSX</Button>
+          <Button
+            variant="primary"
+            icon={<FileSpreadsheet size={18} />}
+            style={{
+              background: "#059669",
+              color: "#ffffff",
+              borderColor: "#047857",
+            }}
+            disabled={!hasPayrollRows}
+            onClick={exportWorkbook}
+          >
+            Export XLSX
+          </Button>
           <DropdownMenu>
-            <DropdownMenu.Trigger render={<Button variant="destructive" icon={<FileText size={18} />} style={{ background: "#dc2626", color: "#ffffff", borderColor: "#b91c1c" }} disabled={!hasPayrollRows}>Export PDF</Button>} />
+            <DropdownMenu.Trigger
+              render={
+                <Button
+                  variant="destructive"
+                  icon={<FileText size={18} />}
+                  style={{
+                    background: "#dc2626",
+                    color: "#ffffff",
+                    borderColor: "#b91c1c",
+                  }}
+                  disabled={!hasPayrollRows}
+                >
+                  Export PDF
+                </Button>
+              }
+            />
             <DropdownMenu.Content>
-              <DropdownMenu.Item icon={<FileText className="mr-2" size={16} />} onClick={exportPdf}>PDF gabungan</DropdownMenu.Item>
-              <DropdownMenu.Item icon={<FileText className="mr-2" size={16} />} onClick={exportPdfZip}>ZIP PDF per karyawan</DropdownMenu.Item>
+              <DropdownMenu.Item
+                icon={<FileText className="mr-2" size={16} />}
+                onClick={exportPdf}
+              >
+                PDF gabungan
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                icon={<FileText className="mr-2" size={16} />}
+                onClick={exportPdfZip}
+              >
+                ZIP PDF per karyawan
+              </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu>
         </div>
@@ -472,15 +688,28 @@ export function PayrollPage() {
       <Banner variant={banner.variant} description={banner.description} />
 
       <LayerCard className="flex flex-col gap-4 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <Text as="h2" variant="heading3">Rekap Payroll Karyawan</Text>
-            <p className="mt-1 text-sm text-kumo-subtle">{statusLabel[overview?.status ?? "empty"]} untuk periode {period}.</p>
+            <Text as="h2" variant="heading3">
+              Rekap Payroll Karyawan
+            </Text>
+            <p className="mt-1 text-sm text-kumo-subtle">
+              {statusLabel[overview?.status ?? "empty"]} untuk periode {period}.
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <Tooltip content="Total absensi atau payroll yang masih perlu dicek sebelum lock.">
-              <Badge variant={(overview?.attendance_review_count ?? 0) + (overview?.payroll_review_count ?? 0) ? "error" : "success"}>
-                {(overview?.attendance_review_count ?? 0) + (overview?.payroll_review_count ?? 0)} review
+              <Badge
+                variant={
+                  (overview?.attendance_review_count ?? 0) +
+                  (overview?.payroll_review_count ?? 0)
+                    ? "error"
+                    : "success"
+                }
+              >
+                {(overview?.attendance_review_count ?? 0) +
+                  (overview?.payroll_review_count ?? 0)}{" "}
+                review
               </Badge>
             </Tooltip>
             {statusBadge(overview?.status ?? "empty")}
@@ -491,25 +720,50 @@ export function PayrollPage() {
           <div className="rounded-md border border-kumo-hairline bg-kumo-base p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
               <div>
-                <Text as="strong" variant="body" bold>Perbandingan Bulanan</Text>
-                <p className="mt-0.5 text-xs text-kumo-subtle">Membandingkan {period} dengan {previous} untuk metrik payroll utama.</p>
+                <Text as="strong" variant="body" bold>
+                  Perbandingan Bulanan
+                </Text>
+                <p className="mt-0.5 text-xs text-kumo-subtle">
+                  Membandingkan {period} dengan {previous} untuk metrik payroll
+                  utama.
+                </p>
               </div>
-              {previousOverview?.status ? statusBadge(previousOverview.status) : null}
+              {previousOverview?.status
+                ? statusBadge(previousOverview.status)
+                : null}
             </div>
-            <Chart echarts={echarts} options={chartOptions} height={188} aria-label="Grafik perbandingan payroll bulanan" />
+            <Chart
+              echarts={echarts}
+              options={chartOptions}
+              height={188}
+              aria-label="Grafik perbandingan payroll bulanan"
+            />
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {comparisonItems.map((item) => {
               const delta = deltaPercent(item.current, item.previous);
-              const variant = delta > 0 ? "success" : delta < 0 ? "error" : "secondary";
+              const variant =
+                delta > 0 ? "success" : delta < 0 ? "error" : "secondary";
               return (
-                <div key={item.label} className="rounded-md border border-kumo-hairline bg-kumo-base px-3 py-2">
+                <div
+                  key={item.label}
+                  className="rounded-md border border-kumo-hairline bg-kumo-base px-3 py-2"
+                >
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-[11px] font-medium uppercase text-kumo-subtle">{item.label}</div>
-                    <Badge variant={variant}>{delta > 0 ? "+" : ""}{delta.toFixed(0)}%</Badge>
+                    <div className="text-[11px] font-medium uppercase text-kumo-subtle">
+                      {item.label}
+                    </div>
+                    <Badge variant={variant}>
+                      {delta > 0 ? "+" : ""}
+                      {delta.toFixed(0)}%
+                    </Badge>
                   </div>
-                  <div className="mt-0.5 truncate text-sm font-semibold text-kumo-default">{rupiah.format(item.current)}</div>
-                  <div className="mt-0.5 truncate text-xs text-kumo-subtle">Bulan lalu {rupiah.format(item.previous)}</div>
+                  <div className="mt-0.5 truncate text-sm font-semibold text-kumo-default">
+                    {rupiah.format(item.current)}
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-kumo-subtle">
+                    Bulan lalu {rupiah.format(item.previous)}
+                  </div>
                 </div>
               );
             })}
@@ -519,16 +773,35 @@ export function PayrollPage() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex min-w-72 flex-1 items-center gap-2">
             <Search size={16} className="text-kumo-subtle" />
-            <Input aria-label="Cari payroll karyawan" className="flex-1" placeholder="Cari karyawan, jabatan, bank, rekening..." value={search} onChange={(event) => setSearch(event.target.value)} />
+            <Input
+              aria-label="Cari payroll karyawan"
+              className="flex-1"
+              placeholder="Cari karyawan, jabatan, bank, rekening..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
           </div>
-          <Select className="w-44" aria-label="Filter status payroll" value={statusFilter} renderValue={(value) => (value === "review" ? "Perlu review" : value === "locked" ? "Locked" : value === "draft" ? "Draft" : "Semua status")} onValueChange={(value) => setStatusFilter(String(value))}>
+          <Select
+            className="w-44"
+            aria-label="Filter status payroll"
+            value={statusFilter}
+            renderValue={(value) =>
+              value === "review"
+                ? "Perlu review"
+                : value === "locked"
+                  ? "Locked"
+                  : value === "draft"
+                    ? "Draft"
+                    : "Semua status"
+            }
+            onValueChange={(value) => setStatusFilter(String(value))}
+          >
             <Select.Option value="all">Semua status</Select.Option>
             <Select.Option value="draft">Draft</Select.Option>
             <Select.Option value="locked">Locked</Select.Option>
             <Select.Option value="review">Perlu review</Select.Option>
           </Select>
         </div>
-
 
         <DataTable
           rows={filteredSummaries}
@@ -539,24 +812,112 @@ export function PayrollPage() {
           selectable
           selectedKeys={new Set(selectedEmployeeId ? [selectedEmployeeId] : [])}
           onToggleRow={(row) => setSelectedEmployeeId(row.employee_id)}
-          onTogglePage={(rows) => rows[0] && setSelectedEmployeeId(rows[0].employee_id)}
+          onTogglePage={(rows) =>
+            rows[0] && setSelectedEmployeeId(rows[0].employee_id)
+          }
           columns={[
-            { key: "name", header: "Karyawan", sticky: "left", width: 220, render: (row) => row.employee_name },
-            { key: "position", header: "Jabatan", render: (row) => row.position ?? "-" },
-            { key: "base", header: "Gaji Pokok", align: "right", render: (row) => rupiah.format(row.base_salary) },
-            { key: "double", header: "Double Shift", align: "right", render: (row) => `${row.double_shift_count} / ${rupiah.format(row.double_shift_fee)}` },
-            { key: "sunday", header: "Minggu/Libur", align: "right", render: (row) => `${row.sunday_count} / ${rupiah.format(row.sunday_fee)}` },
-            { key: "otm", header: "Lembur Menit", align: "right", render: (row) => `${row.overtime_minutes} min` },
-            { key: "ot", header: "Total Lembur", align: "right", render: (row) => rupiah.format(row.overtime_total) },
-            { key: "bonus", header: "Bonus", align: "right", render: (row) => rupiah.format(row.bonus) },
-            { key: "allowance", header: "Tunjangan", align: "right", render: (row) => rupiah.format(row.position_allowance) },
-            { key: "bpjs", header: "BPJS", align: "right", render: (row) => rupiah.format(row.bpjs_deduction) },
-            { key: "deduction", header: "Potongan Lain", align: "right", render: (row) => rupiah.format(row.other_deduction) },
-            { key: "pph", header: "PPh21", align: "right", render: (row) => rupiah.format(row.pph21) },
-            { key: "net", header: "Total Transfer", align: "right", sticky: "right", width: 170, render: (row) => <strong>{rupiah.format(row.net_salary)}</strong> },
-            { key: "bank", header: "Bank", render: (row) => row.bank_name ?? "-" },
-            { key: "account", header: "No Rekening", render: (row) => row.account_number ?? "-" },
-            { key: "status", header: "Status", render: (row) => row.needs_review ? <Badge variant="error">review</Badge> : statusBadge(row.status) },
+            {
+              key: "name",
+              header: "Karyawan",
+              sticky: "left",
+              width: 220,
+              render: (row) => row.employee_name,
+            },
+            {
+              key: "position",
+              header: "Jabatan",
+              render: (row) => row.position ?? "-",
+            },
+            {
+              key: "base",
+              header: "Gaji Pokok",
+              align: "right",
+              render: (row) => rupiah.format(row.base_salary),
+            },
+            {
+              key: "double",
+              header: "Double Shift",
+              align: "right",
+              render: (row) =>
+                `${row.double_shift_count} / ${rupiah.format(row.double_shift_fee)}`,
+            },
+            {
+              key: "sunday",
+              header: "Minggu/Libur",
+              align: "right",
+              render: (row) =>
+                `${row.sunday_count} / ${rupiah.format(row.sunday_fee)}`,
+            },
+            {
+              key: "otm",
+              header: "Lembur Menit",
+              align: "right",
+              render: (row) => `${row.overtime_minutes} min`,
+            },
+            {
+              key: "ot",
+              header: "Total Lembur",
+              align: "right",
+              render: (row) => rupiah.format(row.overtime_total),
+            },
+            {
+              key: "bonus",
+              header: "Bonus",
+              align: "right",
+              render: (row) => rupiah.format(row.bonus),
+            },
+            {
+              key: "allowance",
+              header: "Tunjangan",
+              align: "right",
+              render: (row) => rupiah.format(row.position_allowance),
+            },
+            {
+              key: "bpjs",
+              header: "BPJS",
+              align: "right",
+              render: (row) => rupiah.format(row.bpjs_deduction),
+            },
+            {
+              key: "deduction",
+              header: "Potongan Lain",
+              align: "right",
+              render: (row) => rupiah.format(row.other_deduction),
+            },
+            {
+              key: "pph",
+              header: "PPh21",
+              align: "right",
+              render: (row) => rupiah.format(row.pph21),
+            },
+            {
+              key: "net",
+              header: "Total Transfer",
+              align: "right",
+              sticky: "right",
+              width: 170,
+              render: (row) => <strong>{rupiah.format(row.net_salary)}</strong>,
+            },
+            {
+              key: "bank",
+              header: "Bank",
+              render: (row) => row.bank_name ?? "-",
+            },
+            {
+              key: "account",
+              header: "No Rekening",
+              render: (row) => row.account_number ?? "-",
+            },
+            {
+              key: "status",
+              header: "Status",
+              render: (row) =>
+                row.needs_review ? (
+                  <Badge variant="error">review</Badge>
+                ) : (
+                  statusBadge(row.status)
+                ),
+            },
             {
               key: "actions",
               header: "",
@@ -564,13 +925,44 @@ export function PayrollPage() {
               sticky: "right",
               width: 56,
               render: (row) => (
-                <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
+                <div
+                  className="flex justify-end"
+                  onClick={(event) => event.stopPropagation()}
+                >
                   <DropdownMenu>
-                    <DropdownMenu.Trigger render={<Button variant="ghost" size="sm" shape="square" aria-label={`Aksi ${row.employee_name}`}><MoreHorizontal size={16} /></Button>} />
+                    <DropdownMenu.Trigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          shape="square"
+                          aria-label={`Aksi ${row.employee_name}`}
+                        >
+                          <MoreHorizontal size={16} />
+                        </Button>
+                      }
+                    />
                     <DropdownMenu.Content>
-                      <DropdownMenu.Item icon={<Eye className="mr-2" size={16} />} onClick={() => setSelectedEmployeeId(row.employee_id)}>Lihat lembur</DropdownMenu.Item>
-                      <DropdownMenu.Item icon={<Pencil className="mr-2" size={16} />} disabled={overview?.status === "locked" || !row.id} onClick={() => openAdjustment(row)}>Edit adjustment</DropdownMenu.Item>
-                      <DropdownMenu.Item icon={<FileText className="mr-2" size={16} />} disabled={!row.id} onClick={() => exportSlip(row)}>Export slip PDF</DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        icon={<Eye className="mr-2" size={16} />}
+                        onClick={() => setSelectedEmployeeId(row.employee_id)}
+                      >
+                        Lihat lembur
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        icon={<Pencil className="mr-2" size={16} />}
+                        disabled={overview?.status === "locked" || !row.id}
+                        onClick={() => openAdjustment(row)}
+                      >
+                        Edit adjustment
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        icon={<FileText className="mr-2" size={16} />}
+                        disabled={!row.id}
+                        onClick={() => exportSlip(row)}
+                      >
+                        Export slip PDF
+                      </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu>
                 </div>
@@ -582,8 +974,14 @@ export function PayrollPage() {
 
       <LayerCard className="mb-6 flex flex-col gap-4 p-4">
         <div>
-          <Text as="h2" variant="heading3">Detail Lembur Karyawan</Text>
-          <p className="mt-1 text-sm text-kumo-subtle">{selectedSummary ? selectedSummary.employee_name : "Pilih karyawan dari tabel rekap."}</p>
+          <Text as="h2" variant="heading3">
+            Detail Lembur Karyawan
+          </Text>
+          <p className="mt-1 text-sm text-kumo-subtle">
+            {selectedSummary
+              ? selectedSummary.employee_name
+              : "Pilih karyawan dari tabel rekap."}
+          </p>
         </div>
         <DataTable
           rows={overtimeRows ?? []}
@@ -593,17 +991,49 @@ export function PayrollPage() {
           rowKey={(row) => row.id}
           columns={[
             { key: "date", header: "Tanggal", render: (row) => row.work_date },
-            { key: "name", header: "Nama", render: (row) => row.employee_name_snapshot },
-            { key: "tz1", header: "Timezone I", render: (row) => timeRange(row.timezone1_in, row.timezone1_out) },
-            { key: "tz2", header: "Timezone II", render: (row) => timeRange(row.timezone2_in, row.timezone2_out) },
-            { key: "type", header: "Status Hari", render: (row) => attendanceType(row) },
-            { key: "minutes", header: "Menit Lembur", align: "right", render: (row) => <span className="font-semibold text-kumo-success">{row.overtime_minutes} min</span> },
-            { key: "note", header: "Catatan", render: (row) => row.status_note ?? "-" },
+            {
+              key: "name",
+              header: "Nama",
+              render: (row) => row.employee_name_snapshot,
+            },
+            {
+              key: "tz1",
+              header: "Timezone I",
+              render: (row) => timeRange(row.timezone1_in, row.timezone1_out),
+            },
+            {
+              key: "tz2",
+              header: "Timezone II",
+              render: (row) => timeRange(row.timezone2_in, row.timezone2_out),
+            },
+            {
+              key: "type",
+              header: "Status Hari",
+              render: (row) => attendanceType(row),
+            },
+            {
+              key: "minutes",
+              header: "Menit Lembur",
+              align: "right",
+              render: (row) => (
+                <span className="font-semibold text-kumo-success">
+                  {row.overtime_minutes} min
+                </span>
+              ),
+            },
+            {
+              key: "note",
+              header: "Catatan",
+              render: (row) => row.status_note ?? "-",
+            },
           ]}
         />
       </LayerCard>
 
-      <Dialog.Root open={editor.open} onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}>
+      <Dialog.Root
+        open={editor.open}
+        onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}
+      >
         <Dialog size="lg" className="p-0">
           <form
             onSubmit={(event) => {
@@ -612,28 +1042,205 @@ export function PayrollPage() {
             }}
           >
             <div className="border-b border-kumo-hairline px-6 py-4">
-              <Dialog.Title className="text-lg font-bold">Edit Adjustment Payroll</Dialog.Title>
-              <Dialog.Description>{editor.row?.employee_name ?? "Karyawan"}</Dialog.Description>
+              <Dialog.Title className="text-lg font-bold">
+                Edit Adjustment Payroll
+              </Dialog.Title>
+              <Dialog.Description>
+                {editor.row?.employee_name ?? "Karyawan"}
+              </Dialog.Description>
             </div>
             <div className="px-6 py-4">
               <Grid variant="2up" gap="sm">
-                <Field label="Bonus"><Input type="number" value={editor.values.bonus} onChange={(event) => setEditor((current) => ({ ...current, values: { ...current.values, bonus: event.target.value } }))} /></Field>
-                <Field label="Tunjangan Jabatan"><Input type="number" value={editor.values.position_allowance} onChange={(event) => setEditor((current) => ({ ...current, values: { ...current.values, position_allowance: event.target.value } }))} /></Field>
-                <Field label="Potongan Lain"><Input type="number" value={editor.values.other_deduction} onChange={(event) => setEditor((current) => ({ ...current, values: { ...current.values, other_deduction: event.target.value } }))} /></Field>
-                <Field label="Metode Pembayaran"><Input value={editor.values.payment_method} onChange={(event) => setEditor((current) => ({ ...current, values: { ...current.values, payment_method: event.target.value } }))} /></Field>
-                <Field label="Izin"><Input type="number" value={editor.values.izin_count} onChange={(event) => setEditor((current) => ({ ...current, values: { ...current.values, izin_count: event.target.value } }))} /></Field>
-                <Field label="Sakit"><Input type="number" value={editor.values.sakit_count} onChange={(event) => setEditor((current) => ({ ...current, values: { ...current.values, sakit_count: event.target.value } }))} /></Field>
-                <Field label="Cuti"><Input type="number" value={editor.values.cuti_count} onChange={(event) => setEditor((current) => ({ ...current, values: { ...current.values, cuti_count: event.target.value } }))} /></Field>
-                <Field label="Alpha"><Input type="number" value={editor.values.alpha_count} onChange={(event) => setEditor((current) => ({ ...current, values: { ...current.values, alpha_count: event.target.value } }))} /></Field>
-                <Field label="Bank"><Input value={editor.values.bank_name} onChange={(event) => setEditor((current) => ({ ...current, values: { ...current.values, bank_name: event.target.value } }))} /></Field>
-                <Field label="Nama Penerima"><Input value={editor.values.account_name} onChange={(event) => setEditor((current) => ({ ...current, values: { ...current.values, account_name: event.target.value } }))} /></Field>
-                <Field label="No Rekening"><Input value={editor.values.account_number} onChange={(event) => setEditor((current) => ({ ...current, values: { ...current.values, account_number: event.target.value } }))} /></Field>
-                <Switch size="sm" variant="neutral" label="Perlu review" checked={editor.values.needs_review} onCheckedChange={(checked) => setEditor((current) => ({ ...current, values: { ...current.values, needs_review: checked } }))} />
+                <Field label="Bonus">
+                  <Input
+                    type="number"
+                    value={editor.values.bonus}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          bonus: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Tunjangan Jabatan">
+                  <Input
+                    type="number"
+                    value={editor.values.position_allowance}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          position_allowance: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Potongan Lain">
+                  <Input
+                    type="number"
+                    value={editor.values.other_deduction}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          other_deduction: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Metode Pembayaran">
+                  <Input
+                    value={editor.values.payment_method}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          payment_method: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Izin">
+                  <Input
+                    type="number"
+                    value={editor.values.izin_count}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          izin_count: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Sakit">
+                  <Input
+                    type="number"
+                    value={editor.values.sakit_count}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          sakit_count: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Cuti">
+                  <Input
+                    type="number"
+                    value={editor.values.cuti_count}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          cuti_count: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Alpha">
+                  <Input
+                    type="number"
+                    value={editor.values.alpha_count}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          alpha_count: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Bank">
+                  <Input
+                    value={editor.values.bank_name}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          bank_name: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="Nama Penerima">
+                  <Input
+                    value={editor.values.account_name}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          account_name: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="No Rekening">
+                  <Input
+                    value={editor.values.account_number}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          account_number: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Switch
+                  size="sm"
+                  variant="neutral"
+                  label="Perlu review"
+                  checked={editor.values.needs_review}
+                  onCheckedChange={(checked) =>
+                    setEditor((current) => ({
+                      ...current,
+                      values: { ...current.values, needs_review: checked },
+                    }))
+                  }
+                />
               </Grid>
             </div>
             <div className="flex justify-end gap-2 border-t border-kumo-hairline bg-kumo-base px-6 py-4">
-              <Dialog.Close render={(props) => <Button {...props} variant="secondary" type="button">Batal</Button>} />
-              <Button variant="primary" type="submit" loading={saveAdjustment.isPending}>Simpan</Button>
+              <Dialog.Close
+                render={(props) => (
+                  <Button {...props} variant="secondary" type="button">
+                    Batal
+                  </Button>
+                )}
+              />
+              <Button
+                variant="primary"
+                type="submit"
+                loading={saveAdjustment.isPending}
+              >
+                Simpan
+              </Button>
             </div>
           </form>
         </Dialog>
@@ -642,7 +1249,7 @@ export function PayrollPage() {
         open={lockConfirmOpen}
         title="Kunci Periode Payroll?"
         description={`Periode ${period} akan dikunci. Setelah dikunci, data gaji, absensi, dan adjustment pada periode ini tidak bisa diubah. Pastikan semua data sudah benar sebelum mengunci.`}
-        confirmLabel="🔒 Kunci Periode"
+        confirmLabel="Kunci Periode"
         icon={AlertTriangle}
         isPending={lock.isPending}
         onOpenChange={setLockConfirmOpen}
@@ -653,10 +1260,13 @@ export function PayrollPage() {
         open={unlockConfirmOpen}
         title="Buka Kunci Periode Payroll?"
         description="Membuka kunci periode memungkinkan perubahan data kembali. Masukkan password admin Anda untuk konfirmasi."
-        confirmLabel="🔓 Buka Kunci"
+        confirmLabel="Buka Kunci"
         icon={AlertTriangle}
         isPending={unlock.isPending}
-        onOpenChange={(open) => { setUnlockConfirmOpen(open); if (!open) setUnlockPassword(""); }}
+        onOpenChange={(open) => {
+          setUnlockConfirmOpen(open);
+          if (!open) setUnlockPassword("");
+        }}
         onConfirm={() => unlock.mutate()}
       >
         <input
@@ -665,7 +1275,9 @@ export function PayrollPage() {
           placeholder="Masukkan password admin"
           value={unlockPassword}
           onChange={(event) => setUnlockPassword(event.target.value)}
-          onKeyDown={(event) => { if (event.key === "Enter" && unlockPassword) unlock.mutate(); }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && unlockPassword) unlock.mutate();
+          }}
           autoFocus
         />
       </ConfirmActionDialog>
