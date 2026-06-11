@@ -722,3 +722,37 @@ def lock_period(period: str, session: SessionDep, admin: AdminUser) -> list[Payr
     for row in rows:
         session.refresh(row)
     return rows
+
+
+class UnlockRequest(BaseModel):
+    password: str
+
+
+@router.post("/payroll-periods/{period}/unlock", response_model=list[PayrollRecord])
+def unlock_period(period: str, payload: UnlockRequest, session: SessionDep, admin: AdminUser) -> list[PayrollRecord]:
+    from app.security import verify_password
+
+    if not verify_password(payload.password, admin.hashed_password):
+        raise HTTPException(status_code=403, detail="Password salah. Unlock ditolak.")
+    rows = session.exec(select(PayrollRecord).where(PayrollRecord.period == period)).all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="Tidak ada data payroll untuk periode ini.")
+    locked_rows = [row for row in rows if row.status == PeriodStatus.LOCKED]
+    if not locked_rows:
+        raise HTTPException(status_code=409, detail="Periode payroll ini belum dikunci.")
+    for row in rows:
+        row.status = PeriodStatus.DRAFT
+        session.add(row)
+    record_audit(
+        session,
+        admin,
+        "unlock",
+        "payroll_period",
+        f"Membuka kunci payroll periode {period}.",
+        entity_id=period,
+        metadata={"record_count": len(rows)},
+    )
+    session.commit()
+    for row in rows:
+        session.refresh(row)
+    return rows

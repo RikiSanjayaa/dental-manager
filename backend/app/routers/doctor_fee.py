@@ -555,3 +555,35 @@ def lock_period(period: str, session: SessionDep, admin: AdminUser) -> list[Doct
     )
     session.commit()
     return [_summary_read(session, row) for row in rows]
+
+
+class UnlockRequest(BaseModel):
+    password: str
+
+
+@router.post("/doctor-periods/{period}/unlock", response_model=list[DoctorPeriodSummaryRead])
+def unlock_period(period: str, payload: UnlockRequest, session: SessionDep, admin: AdminUser) -> list[DoctorPeriodSummaryRead]:
+    from app.security import verify_password
+
+    if not verify_password(payload.password, admin.hashed_password):
+        raise HTTPException(status_code=403, detail="Password salah. Unlock ditolak.")
+    rows = session.exec(select(DoctorPeriodSummary).where(DoctorPeriodSummary.period == period)).all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="Tidak ada data fee dokter untuk periode ini.")
+    locked_rows = [row for row in rows if row.status == PeriodStatus.LOCKED]
+    if not locked_rows:
+        raise HTTPException(status_code=409, detail="Periode ini belum dikunci.")
+    for row in rows:
+        row.status = PeriodStatus.DRAFT
+        session.add(row)
+    record_audit(
+        session,
+        admin,
+        "unlock",
+        "doctor_period",
+        f"Membuka kunci fee dokter periode {period}.",
+        entity_id=period,
+        metadata={"summary_count": len(rows)},
+    )
+    session.commit()
+    return [_summary_read(session, row) for row in rows]

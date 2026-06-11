@@ -19,17 +19,20 @@ import { GridComponent, TooltipComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import {
+  AlertTriangle,
   Calculator,
   Eye,
   FileSpreadsheet,
   FileText,
   Lock,
+  LockOpen,
   MoreHorizontal,
   Pencil,
   Search,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { ConfirmActionDialog } from "../components/ConfirmActionDialog";
 import { DataTable } from "../components/DataTable";
 import { api, downloadFile, rupiah } from "../lib/api";
 
@@ -201,6 +204,9 @@ export function PayrollPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
+  const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
+  const [unlockConfirmOpen, setUnlockConfirmOpen] = useState(false);
+  const [unlockPassword, setUnlockPassword] = useState("");
   const [editor, setEditor] = useState<{ open: boolean; row?: PayrollSummary; values: AdjustmentValues }>({
     open: false,
     values: valuesFromSummary({
@@ -268,11 +274,32 @@ export function PayrollPage() {
   const lock = useMutation({
     mutationFn: () => api(`/payroll-periods/${period}/lock`, { method: "POST" }),
     onSuccess: async () => {
+      setLockConfirmOpen(false);
       toasts.add({ title: "Periode payroll dikunci", variant: "success" });
       await queryClient.invalidateQueries({ queryKey: ["payroll-overview", period] });
     },
     onError: (error) =>
       toasts.add({ title: "Periode gagal dikunci", description: error instanceof Error ? error.message : undefined, variant: "error" }),
+  });
+
+  const unlock = useMutation({
+    mutationFn: () =>
+      api(`/payroll-periods/${period}/unlock`, {
+        method: "POST",
+        body: JSON.stringify({ password: unlockPassword }),
+      }),
+    onSuccess: async () => {
+      setUnlockConfirmOpen(false);
+      setUnlockPassword("");
+      toasts.add({ title: "Periode payroll dibuka kuncinya", variant: "success" });
+      await queryClient.invalidateQueries({ queryKey: ["payroll-overview", period] });
+    },
+    onError: (error) =>
+      toasts.add({
+        title: "Gagal membuka kunci periode",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      }),
   });
 
   const saveAdjustment = useMutation({
@@ -411,7 +438,26 @@ export function PayrollPage() {
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Input className="w-40" aria-label="Periode payroll" type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
           <Button variant="secondary" icon={<Calculator size={18} />} loading={calculate.isPending} disabled={overview?.status === "locked"} onClick={() => calculate.mutate()}>Hitung Ulang</Button>
-          <Button variant="secondary" icon={<Lock size={18} />} loading={lock.isPending} disabled={overview?.status === "locked" || overview?.status === "not_calculated" || overview?.status === "empty" || overview?.attendance_review_count !== 0 || overview?.payroll_review_count !== 0 || !hasPayrollRows} onClick={() => lock.mutate()}>Lock Periode</Button>
+          {overview?.status === "locked" ? (
+            <Button
+              variant="secondary"
+              icon={<LockOpen size={18} />}
+              loading={unlock.isPending}
+              onClick={() => { setUnlockPassword(""); setUnlockConfirmOpen(true); }}
+            >
+              Unlock Periode
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              icon={<Lock size={18} />}
+              loading={lock.isPending}
+              disabled={overview?.status === "not_calculated" || overview?.status === "empty" || overview?.attendance_review_count !== 0 || overview?.payroll_review_count !== 0 || !hasPayrollRows}
+              onClick={() => setLockConfirmOpen(true)}
+            >
+              Lock Periode
+            </Button>
+          )}
           <Button variant="primary" icon={<FileSpreadsheet size={18} />} style={{ background: "#059669", color: "#ffffff", borderColor: "#047857" }} disabled={!hasPayrollRows} onClick={exportWorkbook}>Export XLSX</Button>
           <DropdownMenu>
             <DropdownMenu.Trigger render={<Button variant="destructive" icon={<FileText size={18} />} style={{ background: "#dc2626", color: "#ffffff", borderColor: "#b91c1c" }} disabled={!hasPayrollRows}>Export PDF</Button>} />
@@ -592,6 +638,37 @@ export function PayrollPage() {
           </form>
         </Dialog>
       </Dialog.Root>
+      <ConfirmActionDialog
+        open={lockConfirmOpen}
+        title="Kunci Periode Payroll?"
+        description={`Periode ${period} akan dikunci. Setelah dikunci, data gaji, absensi, dan adjustment pada periode ini tidak bisa diubah. Pastikan semua data sudah benar sebelum mengunci.`}
+        confirmLabel="🔒 Kunci Periode"
+        icon={AlertTriangle}
+        isPending={lock.isPending}
+        onOpenChange={setLockConfirmOpen}
+        onConfirm={() => lock.mutate()}
+      />
+
+      <ConfirmActionDialog
+        open={unlockConfirmOpen}
+        title="Buka Kunci Periode Payroll?"
+        description="Membuka kunci periode memungkinkan perubahan data kembali. Masukkan password admin Anda untuk konfirmasi."
+        confirmLabel="🔓 Buka Kunci"
+        icon={AlertTriangle}
+        isPending={unlock.isPending}
+        onOpenChange={(open) => { setUnlockConfirmOpen(open); if (!open) setUnlockPassword(""); }}
+        onConfirm={() => unlock.mutate()}
+      >
+        <input
+          type="password"
+          className="w-full rounded-md border border-kumo-line bg-kumo-base px-3 py-2 text-sm outline-none focus:border-kumo-focus focus:ring-1 focus:ring-kumo-focus"
+          placeholder="Masukkan password admin"
+          value={unlockPassword}
+          onChange={(event) => setUnlockPassword(event.target.value)}
+          onKeyDown={(event) => { if (event.key === "Enter" && unlockPassword) unlock.mutate(); }}
+          autoFocus
+        />
+      </ConfirmActionDialog>
     </>
   );
 }
