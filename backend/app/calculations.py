@@ -45,12 +45,26 @@ def shift_penalty(
     return late, early, 0
 
 
-def shift_overtime(actual_out: time | None, scheduled_out: time) -> int:
-    return positive_diff(actual_out, scheduled_out)
+def shift_overtime(actual_out: time | None, scheduled_out: time, min_minutes: int, max_minutes: int) -> int:
+    minutes = positive_diff(actual_out, scheduled_out)
+    return min(minutes, max(max_minutes, 0)) if minutes > max(min_minutes, 0) else 0
 
 
 def shift_duration(actual_in: time | None, actual_out: time | None) -> int:
     return positive_diff(actual_out, actual_in)
+
+
+def attended_double_shift(record: AttendanceRecord, rule: AttendanceRule) -> bool:
+    total_duration = shift_duration(record.timezone1_in, record.timezone1_out) + shift_duration(record.timezone2_in, record.timezone2_out)
+    timezone2_out = minutes_of_day(record.timezone2_out)
+    timezone2_double_shift_window = minutes_of_day(rule.timezone2_end)
+    reaches_timezone2_end_window = (
+        timezone2_out is not None
+        and timezone2_double_shift_window is not None
+        and timezone2_out >= timezone2_double_shift_window - 60
+    )
+    has_both_shift_logs = bool(record.timezone1_in or record.timezone1_out) and bool(record.timezone2_in or record.timezone2_out)
+    return total_duration >= 360 or reaches_timezone2_end_window or has_both_shift_logs
 
 
 def calculate_attendance_record(record: AttendanceRecord, rule: AttendanceRule) -> AttendanceRecord:
@@ -76,9 +90,9 @@ def calculate_attendance_record(record: AttendanceRecord, rule: AttendanceRule) 
         record.absent_minutes = 0
         record.is_absent = False
         record.total_minutes = 0
-        record.overtime_minutes = shift_duration(record.timezone1_in, record.timezone1_out) + shift_duration(record.timezone2_in, record.timezone2_out)
+        record.overtime_minutes = 0
         record.is_sunday = is_sunday
-        record.is_double_shift = bool(record.timezone1_in or record.timezone1_out) and bool(record.timezone2_in or record.timezone2_out)
+        record.is_double_shift = attended_double_shift(record, rule)
         return record
 
     late1, early1, absent1 = shift_penalty(
@@ -98,9 +112,13 @@ def calculate_attendance_record(record: AttendanceRecord, rule: AttendanceRule) 
     record.absent_minutes = absent1 + absent2
     record.is_absent = False
     record.total_minutes = record.late_minutes + record.early_leave_minutes
-    record.overtime_minutes = shift_overtime(record.timezone1_out, rule.timezone1_end) + shift_overtime(record.timezone2_out, rule.timezone2_end)
+    record.overtime_minutes = min(
+        shift_overtime(record.timezone1_out, rule.timezone1_end, rule.overtime_min_minutes, rule.overtime_max_minutes)
+        + shift_overtime(record.timezone2_out, rule.timezone2_end, rule.overtime_min_minutes, rule.overtime_max_minutes),
+        rule.overtime_max_minutes,
+    )
     record.is_sunday = is_sunday
-    record.is_double_shift = bool(record.timezone1_in or record.timezone1_out) and bool(record.timezone2_in or record.timezone2_out)
+    record.is_double_shift = attended_double_shift(record, rule)
     return record
 
 
@@ -179,15 +197,22 @@ def calculate_payroll_record(
     record.overtime_rate_per_minute = rule.overtime_rate_per_minute
 
     auto_overtime = sum(row.overtime_minutes for row in attendance_rows)
-    auto_sunday = sum(1 for row in attendance_rows if row.is_holiday and row.overtime_minutes > 0)
+    auto_sunday = sum(
+        1
+        for row in attendance_rows
+        if row.is_holiday
+        and any([row.timezone1_in, row.timezone1_out, row.timezone2_in, row.timezone2_out])
+    )
     auto_double = sum(1 for row in attendance_rows if row.is_double_shift)
     record.overtime_minutes = auto_overtime
-    record.sunday_count = auto_sunday
-    record.double_shift_count = auto_double
+    record.auto_sunday_count = auto_sunday
+    record.auto_double_shift_count = auto_double
+    record.sunday_count = record.sunday_count_override if record.sunday_count_override is not None else auto_sunday
+    record.double_shift_count = record.double_shift_count_override if record.double_shift_count_override is not None else auto_double
 
-    daily_salary = record.base_salary / record.working_days if record.working_days else 0
-    record.double_shift_fee = round_money(daily_salary * record.double_shift_count * rule.double_shift_multiplier)
-    record.sunday_fee = round_money(daily_salary * record.sunday_count * rule.sunday_multiplier)
+    allowance_rate = rule.holiday_double_shift_fee or 90_000
+    record.double_shift_fee = round_money(record.double_shift_count * allowance_rate)
+    record.sunday_fee = round_money(record.sunday_count * allowance_rate)
     record.overtime_total = round_money(record.overtime_minutes * record.overtime_rate_per_minute)
     record.bpjs_deduction = round_money(record.base_salary * rule.bpjs_jht_rate)
 

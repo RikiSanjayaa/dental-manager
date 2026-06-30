@@ -9,7 +9,7 @@ export type UserMe = {
   employee_name?: string | null;
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 const TOKEN_KEY = "dental_manager_token";
 
 export function getToken() {

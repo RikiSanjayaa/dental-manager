@@ -98,6 +98,7 @@ class PayrollRuleInput(BaseModel):
     pph21_rate: float = 0.05
     sunday_multiplier: float = 6 / 7
     double_shift_multiplier: float = 1.0
+    holiday_double_shift_fee: float = 90_000
 
 
 class DoctorFeeRuleInput(BaseModel):
@@ -116,6 +117,8 @@ class AttendanceRuleInput(BaseModel):
     timezone1_end: time = time(16, 0)
     timezone2_start: time = time(14, 0)
     timezone2_end: time = time(21, 0)
+    overtime_min_minutes: int = 30
+    overtime_max_minutes: int = 180
 
 
 class AttendanceHolidayInput(BaseModel):

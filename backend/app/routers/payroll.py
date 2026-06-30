@@ -43,6 +43,8 @@ class AttendanceInput(BaseModel):
 
 
 class PayrollAdjustmentInput(BaseModel):
+    double_shift_count: float | None = None
+    sunday_count: float | None = None
     bonus: float = 0
     position_allowance: float = 0
     other_deduction: float = 0
@@ -181,6 +183,10 @@ def payroll_overview_payload(session: SessionDep, period: str) -> dict:
                     "base_salary": effective_base_salary(employee, payroll_rule),
                     "working_days": employee.working_days,
                     "is_training": employee.is_training,
+                    "auto_double_shift_count": 0,
+                    "auto_sunday_count": 0,
+                    "double_shift_count_override": None,
+                    "sunday_count_override": None,
                     "double_shift_count": 0,
                     "sunday_count": 0,
                     "izin_count": 0,
@@ -218,6 +224,10 @@ def payroll_overview_payload(session: SessionDep, period: str) -> dict:
                 "position": employee.position,
                 "join_date": employee.join_date.isoformat() if employee.join_date else None,
                 "is_training": employee.is_training,
+                "auto_double_shift_count": row.auto_double_shift_count,
+                "auto_sunday_count": row.auto_sunday_count,
+                "double_shift_count_override": row.double_shift_count_override,
+                "sunday_count_override": row.sunday_count_override,
                 "base_salary": row.base_salary,
                 "working_days": row.working_days,
                 "double_shift_count": row.double_shift_count,
@@ -667,8 +677,15 @@ def update_payroll_record(item_id: int, payload: PayrollAdjustmentInput, session
     employee = session.get(Employee, row.employee_id)
     if not employee:
         raise HTTPException(status_code=404, detail="Karyawan payroll tidak ditemukan.")
-    for field, value in payload.model_dump().items():
-        setattr(row, field, value)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if field == "double_shift_count":
+            if value is not None:
+                row.double_shift_count_override = value
+        elif field == "sunday_count":
+            if value is not None:
+                row.sunday_count_override = value
+        else:
+            setattr(row, field, value)
     row.pph21 = 0
     row.bpjs_deduction = 0
     row.net_salary = 0

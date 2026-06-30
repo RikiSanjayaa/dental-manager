@@ -26,6 +26,7 @@ type PayrollRule = {
   pph21_rate: number;
   sunday_multiplier: number;
   double_shift_multiplier: number;
+  holiday_double_shift_fee: number;
 };
 
 type DoctorFeeRule = {
@@ -46,6 +47,8 @@ type AttendanceRule = {
   timezone1_end: string;
   timezone2_start: string;
   timezone2_end: string;
+  overtime_min_minutes: number;
+  overtime_max_minutes: number;
 };
 
 type AttendanceHoliday = {
@@ -68,6 +71,7 @@ type PayrollDraft = {
   pph21_rate: string;
   sunday_multiplier: string;
   double_shift_multiplier: string;
+  holiday_double_shift_fee: string;
 };
 
 type AttendanceDraft = {
@@ -76,6 +80,8 @@ type AttendanceDraft = {
   timezone1_end: string;
   timezone2_start: string;
   timezone2_end: string;
+  overtime_min_minutes: string;
+  overtime_max_minutes: string;
 };
 
 type DoctorDraft = {
@@ -155,6 +161,7 @@ export function SettingsPage() {
         pph21_rate: String(rule.pph21_rate * 100),
         sunday_multiplier: String(rule.sunday_multiplier),
         double_shift_multiplier: String(rule.double_shift_multiplier),
+        holiday_double_shift_fee: String(rule.holiday_double_shift_fee || 90000),
       };
     }
     setPayrollDrafts(next);
@@ -169,6 +176,8 @@ export function SettingsPage() {
         timezone1_end: rule.timezone1_end.slice(0, 5),
         timezone2_start: rule.timezone2_start.slice(0, 5),
         timezone2_end: rule.timezone2_end.slice(0, 5),
+        overtime_min_minutes: String(rule.overtime_min_minutes ?? 30),
+        overtime_max_minutes: String(rule.overtime_max_minutes || 180),
       };
     }
     setAttendanceDrafts(next);
@@ -206,6 +215,7 @@ export function SettingsPage() {
           pph21_rate: Number(values.pph21_rate || 0) / 100,
           sunday_multiplier: Number(values.sunday_multiplier || 0),
           double_shift_multiplier: Number(values.double_shift_multiplier || 0),
+          holiday_double_shift_fee: Number(values.holiday_double_shift_fee || 90000),
         }),
       }),
     onSuccess: async () => {
@@ -236,6 +246,8 @@ export function SettingsPage() {
           timezone1_end: values.timezone1_end,
           timezone2_start: values.timezone2_start,
           timezone2_end: values.timezone2_end,
+          overtime_min_minutes: Number(values.overtime_min_minutes || 0),
+          overtime_max_minutes: Number(values.overtime_max_minutes || 180),
         }),
       }),
     onSuccess: async () => {
@@ -402,13 +414,8 @@ export function SettingsPage() {
                       </Field>
                     </div>
                     <div>
-                      <Field label="Fee Masuk Libur (x Gaji Harian)" labelTooltip="Multiplier gaji harian untuk kompensasi masuk di hari Minggu atau tanggal merah.">
-                        <Input type="number" step="0.001" value={values.sunday_multiplier} onChange={(event) => updatePayrollDraft(rule.id, "sunday_multiplier", event.target.value)} />
-                      </Field>
-                    </div>
-                    <div>
-                      <Field label="Multiplier Double Shift" labelTooltip="Multiplier gaji harian untuk karyawan yang menjalankan double shift dalam satu hari.">
-                        <Input type="number" step="0.001" value={values.double_shift_multiplier} onChange={(event) => updatePayrollDraft(rule.id, "double_shift_multiplier", event.target.value)} />
+                      <Field label="Fee Libur / Double Shift" labelTooltip="Nominal tetap per kejadian masuk hari libur atau double shift. Default Rp90.000.">
+                        <Input type="number" value={values.holiday_double_shift_fee} onChange={(event) => updatePayrollDraft(rule.id, "holiday_double_shift_fee", event.target.value)} />
                       </Field>
                     </div>
                   </div>
@@ -458,6 +465,16 @@ export function SettingsPage() {
                     <div>
                       <Field label="Timezone II Selesai" labelTooltip="Jam pulang standar shift Timezone II untuk menghitung pulang awal dan lembur.">
                         <Input type="time" value={values.timezone2_end} onChange={(event) => updateAttendanceDraft(rule.id, "timezone2_end", event.target.value)} />
+                      </Field>
+                    </div>
+                    <div>
+                      <Field label="Mulai Lembur Setelah (menit)" labelTooltip="Lembur baru dihitung jika melewati ambang ini. Default 30 menit, jadi 30 menit pas belum dihitung.">
+                        <Input type="number" min="0" value={values.overtime_min_minutes} onChange={(event) => updateAttendanceDraft(rule.id, "overtime_min_minutes", event.target.value)} />
+                      </Field>
+                    </div>
+                    <div>
+                      <Field label="Maks Lembur (menit)" labelTooltip="Batas maksimal menit lembur yang dibayar per hari. Default 180 menit atau 3 jam.">
+                        <Input type="number" min="0" value={values.overtime_max_minutes} onChange={(event) => updateAttendanceDraft(rule.id, "overtime_max_minutes", event.target.value)} />
                       </Field>
                     </div>
                   </div>

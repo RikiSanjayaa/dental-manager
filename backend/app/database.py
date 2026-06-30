@@ -51,7 +51,23 @@ def ensure_sqlite_columns() -> None:
         with engine.begin() as connection:
             if "default_base_salary" not in payroll_rule_columns:
                 connection.execute(text("ALTER TABLE payrollrule ADD COLUMN default_base_salary FLOAT DEFAULT 2712250"))
+            if "holiday_double_shift_fee" not in payroll_rule_columns:
+                connection.execute(text("ALTER TABLE payrollrule ADD COLUMN holiday_double_shift_fee FLOAT DEFAULT 90000"))
             connection.execute(text("UPDATE payrollrule SET default_base_salary = 2712250 WHERE default_base_salary IS NULL OR default_base_salary = 0"))
+            connection.execute(text("UPDATE payrollrule SET holiday_double_shift_fee = 90000 WHERE holiday_double_shift_fee IS NULL OR holiday_double_shift_fee = 0"))
+    if "payrollrecord" in table_names:
+        payroll_record_columns = {column["name"] for column in inspector.get_columns("payrollrecord")}
+        with engine.begin() as connection:
+            if "auto_double_shift_count" not in payroll_record_columns:
+                connection.execute(text("ALTER TABLE payrollrecord ADD COLUMN auto_double_shift_count FLOAT DEFAULT 0"))
+            if "auto_sunday_count" not in payroll_record_columns:
+                connection.execute(text("ALTER TABLE payrollrecord ADD COLUMN auto_sunday_count FLOAT DEFAULT 0"))
+            if "double_shift_count_override" not in payroll_record_columns:
+                connection.execute(text("ALTER TABLE payrollrecord ADD COLUMN double_shift_count_override FLOAT"))
+            if "sunday_count_override" not in payroll_record_columns:
+                connection.execute(text("ALTER TABLE payrollrecord ADD COLUMN sunday_count_override FLOAT"))
+            connection.execute(text("UPDATE payrollrecord SET auto_double_shift_count = double_shift_count WHERE auto_double_shift_count IS NULL"))
+            connection.execute(text("UPDATE payrollrecord SET auto_sunday_count = sunday_count WHERE auto_sunday_count IS NULL"))
     if "attendancerecord" in table_names:
         attendance_columns = {column["name"] for column in inspector.get_columns("attendancerecord")}
         with engine.begin() as connection:
@@ -73,6 +89,15 @@ def ensure_sqlite_columns() -> None:
                 connection.execute(text("ALTER TABLE attendancerecord ADD COLUMN protest_by_name VARCHAR"))
             if "protested_at" not in attendance_columns:
                 connection.execute(text("ALTER TABLE attendancerecord ADD COLUMN protested_at DATETIME"))
+    if "attendancerule" in table_names:
+        attendance_rule_columns = {column["name"] for column in inspector.get_columns("attendancerule")}
+        with engine.begin() as connection:
+            if "overtime_min_minutes" not in attendance_rule_columns:
+                connection.execute(text("ALTER TABLE attendancerule ADD COLUMN overtime_min_minutes INTEGER DEFAULT 30"))
+            if "overtime_max_minutes" not in attendance_rule_columns:
+                connection.execute(text("ALTER TABLE attendancerule ADD COLUMN overtime_max_minutes INTEGER DEFAULT 180"))
+            connection.execute(text("UPDATE attendancerule SET overtime_min_minutes = 30 WHERE overtime_min_minutes IS NULL"))
+            connection.execute(text("UPDATE attendancerule SET overtime_max_minutes = 180 WHERE overtime_max_minutes IS NULL OR overtime_max_minutes = 0"))
     if "user" in table_names:
         user_columns = {column["name"] for column in inspector.get_columns("user")}
         with engine.begin() as connection:

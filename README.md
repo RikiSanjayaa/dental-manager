@@ -188,6 +188,14 @@
 
 ### Development (Lokal)
 
+#### Frontend + Backend
+
+```powershell
+npm run dev
+```
+
+Backend dev berjalan di `http://127.0.0.1:8010` dan frontend di `http://localhost:5173`.
+
 #### Backend
 
 ```powershell

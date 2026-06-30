@@ -111,6 +111,7 @@ class PayrollRule(SQLModel, table=True):
     pph21_rate: float = 0.05
     sunday_multiplier: float = 6 / 7
     double_shift_multiplier: float = 1.0
+    holiday_double_shift_fee: float = 90_000
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -122,6 +123,8 @@ class AttendanceRule(SQLModel, table=True):
     timezone1_end: time = time(16, 0)
     timezone2_start: time = time(14, 0)
     timezone2_end: time = time(21, 0)
+    overtime_min_minutes: int = 30
+    overtime_max_minutes: int = 180
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -256,6 +259,10 @@ class PayrollRecord(SQLModel, table=True):
     status: PeriodStatus = PeriodStatus.DRAFT
     base_salary: float = 0
     working_days: int = 25
+    auto_double_shift_count: float = 0
+    auto_sunday_count: float = 0
+    double_shift_count_override: Optional[float] = None
+    sunday_count_override: Optional[float] = None
     double_shift_count: float = 0
     sunday_count: float = 0
     izin_count: float = 0

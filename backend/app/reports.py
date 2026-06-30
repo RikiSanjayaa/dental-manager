@@ -660,7 +660,7 @@ def _write_payroll_slip_sheet(slip, records: list[PayrollRecord], session: Sessi
             ("Bonus", record.bonus),
             ("Tunjangan", record.position_allowance),
             ("Lembur", record.overtime_total),
-            ("Masuk Hari Minggu", record.sunday_fee),
+            ("Masuk Hari Libur", record.sunday_fee),
             ("Double shift (Nerus)", record.double_shift_fee),
         ]
         for index, (label, value) in enumerate(income_rows, start=income_header_row + 1):
@@ -727,7 +727,7 @@ def _draw_slip_content(pdf: canvas.Canvas, record: PayrollRecord, employee: Empl
         ("Bonus", record.bonus),
         ("Tunjangan", record.position_allowance),
         ("Lembur", record.overtime_total),
-        ("Masuk Hari Minggu / Libur", record.sunday_fee),
+        ("Masuk Hari Libur", record.sunday_fee),
         ("Double shift (Nerus)", record.double_shift_fee),
     ]
     deductions = [
@@ -768,7 +768,7 @@ def payroll_xlsx(session: Session, period: str, employee_id: int | None = None) 
     ws.merge_cells("A2:G2")
     ws["A1"] = "FORM REKAP GAJI KARYAWAN"
     ws["A2"] = f"Periode Cut Off : {_period_label(period)}"
-    headers = ["No", "Nama Karyawan", "Jabatan", "Join Date", "Masa Kerja", "Gaji Pokok", "Jumlah Hari Kerja", "Nerus (double shift)", "Izin", "Sakit", "Cuti", "Alpha", "fee double shift (nerus)", "Masuk Hari Minggu", "Lembur (menit)", "Tarif Lembur (menit)", "Total Lembur", "Bonus", "Tunjangan Jabatan", "Potongan BPJS TK 2% JHT", "Potongan Lain", "PPh 21", "Total Gaji Bersih", "Pembayaran", "Nama Bank", "Nama Penerima", "no rekening", "nominal transfer"]
+    headers = ["No", "Nama Karyawan", "Jabatan", "Join Date", "Masa Kerja", "Gaji Pokok", "Jumlah Hari Kerja", "Nerus (double shift)", "Izin", "Sakit", "Cuti", "Alpha", "fee double shift (nerus)", "Masuk Hari Libur", "Lembur (menit)", "Tarif Lembur (menit)", "Total Lembur", "Bonus", "Tunjangan Jabatan", "Potongan BPJS TK 2% JHT", "Potongan Lain", "PPh 21", "Total Gaji Bersih", "Pembayaran", "Nama Bank", "Nama Penerima", "no rekening", "nominal transfer"]
     ws.append([])
     ws.append(headers)
     for index, record in enumerate(records, start=1):

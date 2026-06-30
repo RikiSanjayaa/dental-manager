@@ -52,6 +52,10 @@ type PayrollSummary = {
   join_date: string | null;
   base_salary: number;
   working_days: number;
+  auto_double_shift_count: number;
+  auto_sunday_count: number;
+  double_shift_count_override: number | null;
+  sunday_count_override: number | null;
   double_shift_count: number;
   sunday_count: number;
   izin_count: number;
@@ -113,6 +117,8 @@ type OvertimeRecord = {
 };
 
 type AdjustmentValues = {
+  double_shift_count: string;
+  sunday_count: string;
   bonus: string;
   position_allowance: string;
   other_deduction: string;
@@ -172,6 +178,8 @@ function attendanceType(row: OvertimeRecord) {
 
 function valuesFromSummary(row: PayrollSummary): AdjustmentValues {
   return {
+    double_shift_count: String(row.double_shift_count ?? 0),
+    sunday_count: String(row.sunday_count ?? 0),
     bonus: String(row.bonus ?? 0),
     position_allowance: String(row.position_allowance ?? 0),
     other_deduction: String(row.other_deduction ?? 0),
@@ -189,6 +197,8 @@ function valuesFromSummary(row: PayrollSummary): AdjustmentValues {
 
 function adjustmentPayload(values: AdjustmentValues) {
   return {
+    double_shift_count: Number(values.double_shift_count || 0),
+    sunday_count: Number(values.sunday_count || 0),
     bonus: Number(values.bonus || 0),
     position_allowance: Number(values.position_allowance || 0),
     other_deduction: Number(values.other_deduction || 0),
@@ -230,6 +240,10 @@ export function PayrollPage() {
       join_date: null,
       base_salary: 0,
       working_days: 25,
+      auto_double_shift_count: 0,
+      auto_sunday_count: 0,
+      double_shift_count_override: null,
+      sunday_count_override: null,
       double_shift_count: 0,
       sunday_count: 0,
       izin_count: 0,
@@ -838,15 +852,31 @@ export function PayrollPage() {
               key: "double",
               header: "Double Shift",
               align: "right",
-              render: (row) =>
-                `${row.double_shift_count} / ${rupiah.format(row.double_shift_fee)}`,
+              render: (row) => (
+                <div className="text-right">
+                  <div>{`${row.double_shift_count} / ${rupiah.format(row.double_shift_fee)}`}</div>
+                  {row.double_shift_count_override !== null ? (
+                    <div className="text-[11px] text-kumo-subtle">
+                      Auto {row.auto_double_shift_count}
+                    </div>
+                  ) : null}
+                </div>
+              ),
             },
             {
               key: "sunday",
-              header: "Minggu/Libur",
+              header: "Hari Libur",
               align: "right",
-              render: (row) =>
-                `${row.sunday_count} / ${rupiah.format(row.sunday_fee)}`,
+              render: (row) => (
+                <div className="text-right">
+                  <div>{`${row.sunday_count} / ${rupiah.format(row.sunday_fee)}`}</div>
+                  {row.sunday_count_override !== null ? (
+                    <div className="text-[11px] text-kumo-subtle">
+                      Auto {row.auto_sunday_count}
+                    </div>
+                  ) : null}
+                </div>
+              ),
             },
             {
               key: "otm",
@@ -1051,6 +1081,44 @@ export function PayrollPage() {
             </div>
             <div className="px-6 py-4">
               <Grid variant="2up" gap="sm">
+                <Field
+                  label="Double Shift"
+                  labelTooltip={`Auto dari absensi: ${editor.row?.auto_double_shift_count ?? 0}. Nilai final dikalikan Rp90.000.`}
+                >
+                  <Input
+                    type="number"
+                    step="0.5"
+                    value={editor.values.double_shift_count}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          double_shift_count: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Masuk Hari Libur"
+                  labelTooltip={`Auto dari absensi: ${editor.row?.auto_sunday_count ?? 0}. Nilai final dikalikan Rp90.000.`}
+                >
+                  <Input
+                    type="number"
+                    step="0.5"
+                    value={editor.values.sunday_count}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          sunday_count: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
                 <Field label="Bonus">
                   <Input
                     type="number"
