@@ -4,6 +4,7 @@ import { adminOnly, currentUser, hashPassword, type AppVariables } from "../auth
 import { all, first, recordAudit } from "../db";
 import { nowIso } from "../http";
 import type { Env } from "../types";
+import { boolValue, numberValue, textValue, workbookRowsFromRequest } from "../xlsx";
 
 type TableConfig = {
   table: string;
@@ -86,6 +87,128 @@ async function listTable(env: Env, config: TableConfig, search: string | null) {
     );
   }
   return all<Record<string, unknown>>(env.DB.prepare(`SELECT * FROM ${config.table} ORDER BY id`));
+}
+
+function targetPayload(target: string, row: Record<string, unknown>) {
+  if (target === "treatments") {
+    return {
+      code: textValue(row, ["code", "kode"]),
+      name: textValue(row, ["name", "nama", "nama_treatment", "treatment"]),
+      category: textValue(row, ["category", "kategori"]) || null,
+      doctor_cost: numberValue(row, ["doctor_cost", "jasa_dokter"], 0),
+      specialist_cost: numberValue(row, ["specialist_cost", "jasa_spesialis"], 0),
+      bhp_cost: numberValue(row, ["bhp_cost", "bhp"], 0),
+      service_fee: numberValue(row, ["service_fee", "jasa"], 0),
+      treatment_price: numberValue(row, ["treatment_price", "harga", "biaya_perawatan"], 0),
+      notes: textValue(row, ["notes", "catatan"]) || null,
+      is_active: boolValue(row, ["is_active", "aktif"], true) ? 1 : 0,
+    };
+  }
+  if (target === "doctors") {
+    return {
+      name: textValue(row, ["name", "nama", "dokter", "doctor_name"]),
+      bank_name: textValue(row, ["bank_name", "bank"]) || null,
+      account_name: textValue(row, ["account_name", "nama_rekening"]) || null,
+      account_number: textValue(row, ["account_number", "nomor_rekening", "rekening"]) || null,
+      nik: textValue(row, ["nik"]) || null,
+      normal_fee_rate: numberValue(row, ["normal_fee_rate", "fee_rate", "rate"], 0.6),
+      ortho_fee_rate: numberValue(row, ["ortho_fee_rate", "rate_ortho"], 0.7),
+      tax_rate: numberValue(row, ["tax_rate", "pajak"], 0.025),
+      is_active: boolValue(row, ["is_active", "aktif"], true) ? 1 : 0,
+    };
+  }
+  return {
+    name: textValue(row, ["name", "nama", "employee_name", "karyawan"]),
+    attendance_id: textValue(row, ["attendance_id", "id_absensi", "pin"]) || null,
+    position: textValue(row, ["position", "jabatan"]) || null,
+    join_date: textValue(row, ["join_date", "tanggal_masuk"]) || null,
+    base_salary: numberValue(row, ["base_salary", "gaji_pokok"], 0),
+    working_days: numberValue(row, ["working_days", "hari_kerja"], 25),
+    is_training: boolValue(row, ["is_training", "training"], false) ? 1 : 0,
+    bank_name: textValue(row, ["bank_name", "bank"]) || null,
+    account_name: textValue(row, ["account_name", "nama_rekening"]) || null,
+    account_number: textValue(row, ["account_number", "nomor_rekening", "rekening"]) || null,
+    is_active: boolValue(row, ["is_active", "aktif"], true) ? 1 : 0,
+  };
+}
+
+function identityWhere(target: string, payload: Record<string, unknown>) {
+  if (target === "treatments" && payload.code) return { sql: "code = ?", value: payload.code };
+  if (target === "employees" && payload.attendance_id) return { sql: "attendance_id = ?", value: payload.attendance_id };
+  return { sql: "name = ?", value: payload.name };
+}
+
+async function buildMasterPreview(env: Env, target: string, rows: Record<string, unknown>[]) {
+  const config = tables[target];
+  if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
+  const seen = new Set<string>();
+  const previewRows = [];
+  const errors = [];
+  let valid = 0;
+  let invalid = 0;
+  let duplicate = 0;
+  let newRows = 0;
+  let updateRows = 0;
+  for (const [index, source] of rows.entries()) {
+    const rowNumber = index + 2;
+    const payload = targetPayload(target, source);
+    const issues: string[] = [];
+    if (!payload.name) issues.push("Nama wajib diisi.");
+    const identity = identityWhere(target, payload);
+    const identityKey = `${identity.sql}:${String(identity.value || "").toLowerCase()}`;
+    if (seen.has(identityKey)) {
+      duplicate += 1;
+      issues.push("Duplikat di file.");
+    }
+    seen.add(identityKey);
+    const existing = issues.length ? null : await first<Record<string, unknown>>(env.DB.prepare(`SELECT id FROM ${config.table} WHERE ${identity.sql}`).bind(identity.value));
+    const status = issues.length ? "invalid" : existing ? "update" : "new";
+    if (status === "invalid") {
+      invalid += 1;
+      errors.push({ row: rowNumber, field: "name", message: issues.join(" ") });
+    } else {
+      valid += 1;
+      if (status === "update") updateRows += 1;
+      else newRows += 1;
+    }
+    previewRows.push({ row: rowNumber, status, issues, ...payload });
+  }
+  return {
+    import_id: 0,
+    target,
+    valid_rows: valid,
+    invalid_rows: invalid,
+    summary: { new: newRows, update: updateRows, invalid, duplicate_in_file: duplicate },
+    rows: previewRows,
+    warnings: [],
+    errors,
+  };
+}
+
+async function storeImportPreview(c: { env: Env }, target: string, filename: string, preview: Record<string, unknown>, userId: number) {
+  const result = await c.env.DB.prepare(
+    `INSERT INTO importfile
+      (original_filename, stored_path, kind, status, rows_valid, rows_invalid, warnings_count, preview_json, errors_json, created_by_id, created_at)
+     VALUES (?, ?, ?, 'preview', ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      filename,
+      `preview/${target}/${Date.now()}-${filename}`,
+      `master:${target}`,
+      preview.valid_rows,
+      preview.invalid_rows,
+      (preview.warnings as unknown[] | undefined)?.length ?? 0,
+      JSON.stringify(preview),
+      JSON.stringify(preview.errors ?? []),
+      userId,
+      nowIso()
+    )
+    .run();
+  preview.import_id = result.meta.last_row_id;
+  await c.env.DB.prepare("UPDATE importfile SET preview_json = ? WHERE id = ?")
+    .bind(JSON.stringify(preview), result.meta.last_row_id)
+    .run();
+  return preview;
 }
 
 for (const [path, config] of Object.entries(tables)) {
@@ -303,24 +426,67 @@ masterRoutes.delete("/settings/attendance-holidays/:id", currentUser, adminOnly,
   return c.json({ status: "ok" });
 });
 
-masterRoutes.post("/master-data/import/:target/preview", currentUser, adminOnly, async () => {
-  throw new HTTPException(501, { message: "Import master data XLSX Worker belum selesai." });
+masterRoutes.post("/master-data/import/:target/preview", currentUser, adminOnly, async (c) => {
+  const target = c.req.param("target") ?? "";
+  const user = c.get("user");
+  const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
+  const preview = await buildMasterPreview(c.env, target, rows);
+  return c.json(await storeImportPreview(c, target, filename, preview, user.id));
 });
 
-masterRoutes.post("/master-data/import/:target/:id/commit", currentUser, adminOnly, async () => {
-  throw new HTTPException(501, { message: "Import master data XLSX Worker belum selesai." });
+masterRoutes.post("/master-data/import/:target/:id/commit", currentUser, adminOnly, async (c) => {
+  const target = c.req.param("target") ?? "";
+  const config = tables[target];
+  if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
+  const importId = Number(c.req.param("id"));
+  const stored = await first<{ preview_json: string }>(c.env.DB.prepare("SELECT preview_json FROM importfile WHERE id = ? AND kind = ?").bind(importId, `master:${target}`));
+  if (!stored) throw new HTTPException(404, { message: "Preview import tidak ditemukan." });
+  const preview = JSON.parse(stored.preview_json) as { rows: Array<Record<string, unknown> & { status: string }>; invalid_rows: number };
+  let created = 0;
+  let updated = 0;
+  for (const row of preview.rows.filter((item) => item.status !== "invalid")) {
+    const payload = pick(row, config.mutable);
+    const identity = identityWhere(target, payload);
+    const existing = await first<{ id: number }>(c.env.DB.prepare(`SELECT id FROM ${config.table} WHERE ${identity.sql}`).bind(identity.value));
+    if (existing) {
+      await c.env.DB.prepare(`UPDATE ${config.table} SET ${assignmentSql(payload)} WHERE id = ?`)
+        .bind(...Object.values(payload), existing.id)
+        .run();
+      updated += 1;
+    } else {
+      const values = { ...payload, created_at: nowIso() };
+      const fields = Object.keys(values);
+      await c.env.DB.prepare(`INSERT INTO ${config.table} (${fields.join(", ")}) VALUES (${fields.map(() => "?").join(", ")})`)
+        .bind(...Object.values(values))
+        .run();
+      created += 1;
+    }
+  }
+  await c.env.DB.prepare("UPDATE importfile SET status = 'committed', committed_at = ? WHERE id = ?")
+    .bind(nowIso(), importId)
+    .run();
+  return c.json({ target, created, updated, invalid_rows: preview.invalid_rows });
 });
 
-masterRoutes.post("/master-data/import/treatments", currentUser, adminOnly, async () => {
-  throw new HTTPException(501, { message: "Import master data XLSX Worker belum selesai." });
+masterRoutes.post("/master-data/import/treatments", currentUser, adminOnly, async (c) => {
+  const user = c.get("user");
+  const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
+  const preview = await storeImportPreview(c, "treatments", filename, await buildMasterPreview(c.env, "treatments", rows), user.id);
+  return c.redirect(`/master-data/import/treatments/${preview.import_id}/commit`, 307);
 });
 
-masterRoutes.post("/master-data/import/doctors", currentUser, adminOnly, async () => {
-  throw new HTTPException(501, { message: "Import master data XLSX Worker belum selesai." });
+masterRoutes.post("/master-data/import/doctors", currentUser, adminOnly, async (c) => {
+  const user = c.get("user");
+  const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
+  const preview = await storeImportPreview(c, "doctors", filename, await buildMasterPreview(c.env, "doctors", rows), user.id);
+  return c.redirect(`/master-data/import/doctors/${preview.import_id}/commit`, 307);
 });
 
-masterRoutes.post("/master-data/import/employees", currentUser, adminOnly, async () => {
-  throw new HTTPException(501, { message: "Import master data XLSX Worker belum selesai." });
+masterRoutes.post("/master-data/import/employees", currentUser, adminOnly, async (c) => {
+  const user = c.get("user");
+  const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
+  const preview = await storeImportPreview(c, "employees", filename, await buildMasterPreview(c.env, "employees", rows), user.id);
+  return c.redirect(`/master-data/import/employees/${preview.import_id}/commit`, 307);
 });
 
 masterRoutes.post("/dev/refresh-database", currentUser, adminOnly, async (c) => {

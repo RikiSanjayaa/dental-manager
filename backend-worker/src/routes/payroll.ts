@@ -5,6 +5,7 @@ import { calculateAttendanceRecord, calculatePayrollRecord } from "../calculatio
 import { all, first } from "../db";
 import { nowIso } from "../http";
 import type { Env } from "../types";
+import { boolValue, dateTextValue, textValue, timeTextValue, workbookRowsFromRequest } from "../xlsx";
 
 export const payrollRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -155,12 +156,116 @@ const attendanceFields = [
   "created_at",
 ];
 
-payrollRoutes.post("/attendance/import-preview", adminOnly, async () => {
-  throw new HTTPException(501, { message: "Import absensi XLSX Worker belum selesai." });
+async function buildAttendanceRows(env: Env, sourceRows: Record<string, unknown>[]) {
+  const rule = await attendanceRule(env);
+  const rows = [];
+  const errors = [];
+  let valid = 0;
+  let invalid = 0;
+  let review = 0;
+  let newRows = 0;
+  let updateRows = 0;
+  let duplicate = 0;
+  const seen = new Set<string>();
+  for (const [index, source] of sourceRows.entries()) {
+    const rowNumber = index + 2;
+    const workDate = dateTextValue(source, ["work_date", "tanggal", "date"]);
+    const attendanceId = textValue(source, ["attendance_id", "id_absensi", "pin"]);
+    const employeeName = textValue(source, ["employee_name", "nama", "karyawan"]);
+    const employee = attendanceId
+      ? await first<EmployeeRow & { attendance_id?: string }>(env.DB.prepare("SELECT * FROM employee WHERE attendance_id = ?").bind(attendanceId))
+      : employeeName
+        ? await first<EmployeeRow & { attendance_id?: string }>(env.DB.prepare("SELECT * FROM employee WHERE lower(name) = lower(?)").bind(employeeName))
+        : null;
+    const issues: string[] = [];
+    if (!workDate) issues.push("Tanggal wajib diisi.");
+    if (!attendanceId && !employeeName) issues.push("ID absensi atau nama karyawan wajib diisi.");
+    if (!employee) issues.push("Karyawan tidak ditemukan di master.");
+    const period = workDate ? workDate.slice(0, 7) : "";
+    const key = `${period}:${employee?.id ?? (attendanceId || employeeName)}:${workDate}`;
+    if (seen.has(key)) {
+      duplicate += 1;
+      issues.push("Duplikat di file.");
+    }
+    seen.add(key);
+    const holiday = workDate
+      ? await first<{ is_holiday: number | boolean }>(env.DB.prepare("SELECT is_holiday FROM attendanceholiday WHERE holiday_date = ?").bind(workDate))
+      : null;
+    const existing = employee && workDate
+      ? await first<{ id: number }>(env.DB.prepare("SELECT id FROM attendancerecord WHERE period = ? AND employee_id = ? AND work_date = ?").bind(period, employee.id, workDate))
+      : null;
+    const record = calculateAttendanceRecord(
+      {
+        period,
+        employee_id: employee?.id ?? null,
+        attendance_id_snapshot: attendanceId || employee?.attendance_id || "",
+        employee_name_snapshot: employeeName || employee?.name || "",
+        work_date: workDate,
+        timezone1_in: timeTextValue(source, ["timezone1_in", "shift1_in", "masuk1"]),
+        timezone1_out: timeTextValue(source, ["timezone1_out", "shift1_out", "keluar1"]),
+        timezone2_in: timeTextValue(source, ["timezone2_in", "shift2_in", "masuk2"]),
+        timezone2_out: timeTextValue(source, ["timezone2_out", "shift2_out", "keluar2"]),
+        is_holiday: boolValue(source, ["is_holiday", "libur"], Boolean(holiday?.is_holiday)) ? 1 : 0,
+        status_note: textValue(source, ["status_note", "catatan"]) || null,
+        needs_review: employee ? 0 : 1,
+        created_at: nowIso(),
+      },
+      rule
+    );
+    const status = issues.length ? "invalid" : record.needs_review ? "review" : existing ? "update" : "new";
+    if (status === "invalid") {
+      invalid += 1;
+      errors.push({ row: rowNumber, message: issues.join(" ") });
+    } else {
+      valid += 1;
+      if (status === "review") review += 1;
+      if (status === "update") updateRows += 1;
+      if (status === "new") newRows += 1;
+    }
+    rows.push({ row: rowNumber, status, issues, ...record });
+  }
+  return {
+    kind: "attendance",
+    valid_rows: valid,
+    invalid_rows: invalid,
+    warnings: [],
+    errors,
+    summary: { attendance: valid, review, new: newRows, update: updateRows, duplicate_in_file: duplicate },
+    rows,
+  };
+}
+
+payrollRoutes.post("/attendance/import-preview", adminOnly, async (c) => {
+  const { rows } = await workbookRowsFromRequest(c.req.raw);
+  return c.json(await buildAttendanceRows(c.env, rows));
 });
 
-payrollRoutes.post("/attendance/import", adminOnly, async () => {
-  throw new HTTPException(501, { message: "Import absensi XLSX Worker belum selesai." });
+payrollRoutes.post("/attendance/import", adminOnly, async (c) => {
+  const { rows } = await workbookRowsFromRequest(c.req.raw);
+  const preview = await buildAttendanceRows(c.env, rows);
+  let created = 0;
+  let updated = 0;
+  for (const row of preview.rows.filter((item) => item.status !== "invalid")) {
+    const values = pick(row, attendanceFields);
+    const existing = row.employee_id
+      ? await first<{ id: number }>(
+          c.env.DB.prepare("SELECT id FROM attendancerecord WHERE period = ? AND employee_id = ? AND work_date = ?").bind(row.period, row.employee_id, row.work_date)
+        )
+      : null;
+    if (existing) {
+      await c.env.DB.prepare(`UPDATE attendancerecord SET ${assignmentSql(pick(values, attendanceFields.filter((field) => field !== "created_at")))} WHERE id = ?`)
+        .bind(...Object.values(pick(values, attendanceFields.filter((field) => field !== "created_at"))), existing.id)
+        .run();
+      updated += 1;
+    } else {
+      const fields = Object.keys(values);
+      await c.env.DB.prepare(`INSERT INTO attendancerecord (${fields.join(", ")}) VALUES (${fields.map(() => "?").join(", ")})`)
+        .bind(...Object.values(values))
+        .run();
+      created += 1;
+    }
+  }
+  return c.json({ created, updated, invalid_rows: preview.invalid_rows });
 });
 
 payrollRoutes.get("/attendance-records", async (c) => {

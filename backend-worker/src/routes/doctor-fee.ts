@@ -5,6 +5,7 @@ import { calculateDoctorTransaction } from "../calculations";
 import { all, first, recordAudit } from "../db";
 import { nowIso } from "../http";
 import type { Env } from "../types";
+import { dateTextValue, numberValue, textValue, workbookRowsFromRequest } from "../xlsx";
 
 export const doctorFeeRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -153,6 +154,105 @@ async function doctorSummaries(env: Env, period: string) {
   );
 }
 
+async function buildTransactionPreview(env: Env, rows: Record<string, unknown>[]) {
+  const previewRows = [];
+  const errors = [];
+  let valid = 0;
+  let invalid = 0;
+  let review = 0;
+  for (const [index, source] of rows.entries()) {
+    const rowNumber = index + 2;
+    const transactionDate = dateTextValue(source, ["transaction_date", "tanggal", "date"]);
+    const doctorName = textValue(source, ["doctor_name", "dokter", "doctor"]);
+    const patientName = textValue(source, ["patient_name", "pasien", "patient"]);
+    const treatmentName = textValue(source, ["treatment_name", "perawatan", "treatment"]);
+    const issues: string[] = [];
+    if (!transactionDate) issues.push("Tanggal wajib diisi.");
+    if (!doctorName) issues.push("Dokter wajib diisi.");
+    if (!patientName) issues.push("Nama pasien wajib diisi.");
+    if (!treatmentName) issues.push("Perawatan wajib diisi.");
+    const doctor = doctorName
+      ? await first<Doctor>(env.DB.prepare("SELECT * FROM doctor WHERE lower(name) = lower(?)").bind(doctorName))
+      : null;
+    if (doctorName && !doctor) issues.push("Dokter tidak ditemukan di master.");
+    const treatment = treatmentName
+      ? await first<(Treatment & { code?: string })>(
+          env.DB.prepare("SELECT * FROM treatment WHERE lower(name) = lower(?) OR lower(code) = lower(?)").bind(treatmentName, treatmentName)
+        )
+      : null;
+    const needsReview = !treatment;
+    if (needsReview && treatmentName) issues.push("Treatment perlu review.");
+    const status = issues.some((issue) => !issue.includes("review")) || !doctor ? "invalid" : needsReview ? "review" : "valid";
+    const payload = {
+      period: transactionDate.slice(0, 7),
+      transaction_date: transactionDate,
+      doctor_id: doctor?.id ?? null,
+      doctor_name: doctorName,
+      patient_name: patientName,
+      treatment_id: treatment?.id ?? null,
+      treatment_name: treatmentName,
+      treatment_name_snapshot: treatment?.name ?? treatmentName,
+      qty: numberValue(source, ["qty", "jumlah"], 1),
+      discount_amount: numberValue(source, ["discount_amount", "diskon"], 0),
+      bhp_override: numberValue(source, ["bhp_override", "override_bhp"], NaN),
+      price_override: numberValue(source, ["price_override", "override_harga"], NaN),
+      special_fee_amount: numberValue(source, ["special_fee_amount", "fee_khusus_behel"], 0),
+      fee_rate: numberValue(source, ["fee_rate", "rate"], NaN),
+      needs_review: needsReview,
+      review_note: needsReview ? "Treatment belum ditemukan di master." : null,
+    };
+    const normalizedPayload = {
+      ...payload,
+      bhp_override: Number.isFinite(payload.bhp_override) ? payload.bhp_override : null,
+      price_override: Number.isFinite(payload.price_override) ? payload.price_override : null,
+      fee_rate: Number.isFinite(payload.fee_rate) ? payload.fee_rate : null,
+    };
+    if (status === "invalid") {
+      invalid += 1;
+      errors.push({ row: rowNumber, message: issues.join(" ") });
+    } else {
+      valid += 1;
+      if (status === "review") review += 1;
+    }
+    previewRows.push({ row: rowNumber, status, issues, ...normalizedPayload });
+  }
+  return {
+    import_id: 0,
+    kind: "doctor-transactions",
+    valid_rows: valid,
+    invalid_rows: invalid,
+    warnings: [],
+    errors,
+    summary: { transactions: valid, review },
+    rows: previewRows,
+  };
+}
+
+async function storeTransactionPreview(env: Env, filename: string, preview: Record<string, unknown>, userId: number) {
+  const result = await env.DB.prepare(
+    `INSERT INTO importfile
+      (original_filename, stored_path, kind, status, rows_valid, rows_invalid, warnings_count, preview_json, errors_json, created_by_id, created_at)
+     VALUES (?, ?, 'doctor-transactions', 'preview', ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      filename,
+      `preview/doctor-transactions/${Date.now()}-${filename}`,
+      preview.valid_rows,
+      preview.invalid_rows,
+      (preview.warnings as unknown[] | undefined)?.length ?? 0,
+      JSON.stringify(preview),
+      JSON.stringify(preview.errors ?? []),
+      userId,
+      nowIso()
+    )
+    .run();
+  preview.import_id = result.meta.last_row_id;
+  await env.DB.prepare("UPDATE importfile SET preview_json = ? WHERE id = ?")
+    .bind(JSON.stringify(preview), result.meta.last_row_id)
+    .run();
+  return preview;
+}
+
 doctorFeeRoutes.get("/doctor-transactions", async (c) => {
   const period = c.req.query("period");
   let sql = `SELECT t.*, d.name AS doctor_name, tr.name AS treatment_name,
@@ -205,14 +305,61 @@ doctorFeeRoutes.delete("/doctor-transactions/:id", adminOnly, async (c) => {
   return c.json({ status: "ok" });
 });
 
-doctorFeeRoutes.post("/doctor-transactions/import/preview", adminOnly, async () => {
-  throw new HTTPException(501, { message: "Import XLSX Worker belum selesai." });
+doctorFeeRoutes.post("/doctor-transactions/import/preview", adminOnly, async (c) => {
+  const user = c.get("user");
+  const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
+  return c.json(await storeTransactionPreview(c.env, filename, await buildTransactionPreview(c.env, rows), user.id));
 });
-doctorFeeRoutes.post("/doctor-transactions/import/:id/commit", adminOnly, async () => {
-  throw new HTTPException(501, { message: "Import XLSX Worker belum selesai." });
+doctorFeeRoutes.post("/doctor-transactions/import/:id/commit", adminOnly, async (c) => {
+  const user = c.get("user");
+  const importId = Number(c.req.param("id"));
+  const stored = await first<{ preview_json: string }>(
+    c.env.DB.prepare("SELECT preview_json FROM importfile WHERE id = ? AND kind = 'doctor-transactions'").bind(importId)
+  );
+  if (!stored) throw new HTTPException(404, { message: "Preview import tidak ditemukan." });
+  const preview = JSON.parse(stored.preview_json) as { rows: Array<Record<string, unknown> & { status: string }>; invalid_rows: number };
+  let created = 0;
+  for (const row of preview.rows.filter((item) => item.status !== "invalid")) {
+    const calculated = await hydrateAndCalculate(c.env, row);
+    const values = { ...pick(calculated, trxFields), created_at: nowIso() };
+    const fields = Object.keys(values);
+    const result = await c.env.DB.prepare(`INSERT INTO doctortransaction (${fields.join(", ")}) VALUES (${fields.map(() => "?").join(", ")})`)
+      .bind(...Object.values(values))
+      .run();
+    await recordAudit(c.env, {
+      actor_id: user.id,
+      actor_username: user.username,
+      actor_name: user.full_name,
+      action: "create",
+      entity_type: "doctor_transaction",
+      entity_id: result.meta.last_row_id,
+      description: "Import transaksi perawatan.",
+    });
+    created += 1;
+  }
+  await c.env.DB.prepare("UPDATE importfile SET status = 'committed', committed_at = ? WHERE id = ?")
+    .bind(nowIso(), importId)
+    .run();
+  return c.json({ created, updated: 0, invalid_rows: preview.invalid_rows });
 });
-doctorFeeRoutes.post("/doctor-transactions/import", adminOnly, async () => {
-  throw new HTTPException(501, { message: "Import XLSX Worker belum selesai." });
+doctorFeeRoutes.post("/doctor-transactions/import", adminOnly, async (c) => {
+  const user = c.get("user");
+  const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
+  const preview = await storeTransactionPreview(c.env, filename, await buildTransactionPreview(c.env, rows), user.id);
+  let created = 0;
+  for (const row of (preview.rows as Array<Record<string, unknown> & { status: string }>).filter((item) => item.status !== "invalid")) {
+    const calculated = await hydrateAndCalculate(c.env, row);
+    const values = { ...pick(calculated, trxFields), created_at: nowIso() };
+    const fields = Object.keys(values);
+    await c.env.DB.prepare(`INSERT INTO doctortransaction (${fields.join(", ")}) VALUES (${fields.map(() => "?").join(", ")})`)
+      .bind(...Object.values(values))
+      .run();
+    created += 1;
+  }
+  await c.env.DB.prepare("UPDATE importfile SET status = 'committed', committed_at = ? WHERE id = ?")
+    .bind(nowIso(), preview.import_id)
+    .run();
+  return c.json({ created, updated: 0, invalid_rows: preview.invalid_rows });
 });
 
 doctorFeeRoutes.post("/doctor-transactions/generate-random", adminOnly, async (c) => {
