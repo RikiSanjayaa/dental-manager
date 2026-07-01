@@ -18,10 +18,22 @@ export async function workbookRowsFromRequest(request: Request): Promise<{ filen
   };
 }
 
-export function makeWorkbook(sheets: Array<{ name: string; rows: Record<string, unknown>[] }>): ArrayBuffer {
+export function makeWorkbook(sheets: Array<{ name: string; rows: Record<string, unknown>[]; freeze?: string }>): ArrayBuffer {
   const workbook = XLSX.utils.book_new();
   for (const sheet of sheets) {
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(sheet.rows), sheet.name.slice(0, 31));
+    const worksheet = XLSX.utils.json_to_sheet(sheet.rows);
+    const headers = Array.from(new Set(sheet.rows.flatMap((row) => Object.keys(row))));
+    worksheet["!cols"] = headers.map((header) => {
+      const width = Math.max(
+        header.length,
+        ...sheet.rows.map((row) => String(row[header] ?? "").length)
+      );
+      return { wch: Math.min(Math.max(width + 2, 10), 36) };
+    });
+    if (sheet.freeze) {
+      worksheet["!freeze"] = sheet.freeze;
+    }
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheet.name.slice(0, 31));
   }
   return XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
 }
