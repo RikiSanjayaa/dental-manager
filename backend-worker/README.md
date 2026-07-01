@@ -80,6 +80,19 @@ your-domain.example/api/*
 
 Pages will continue serving the frontend, while `/api/*` is handled by the `dental-manager-api` Worker. The Worker accepts both root API paths (`/auth/login`) and prefixed Pages routes (`/api/auth/login`).
 
+## CI/CD
+
+Frontend deployment remains handled by Cloudflare Pages. Worker deployment is handled by GitHub Actions on every push to `main` that changes Worker-related files.
+
+Configure these repository secrets in GitHub before pushing to `main`:
+
+```text
+CLOUDFLARE_API_TOKEN
+CLOUDFLARE_ACCOUNT_ID
+```
+
+The API token needs permission to deploy Workers and apply D1 migrations for the account/zone used by `op.devemaclinic.com`.
+
 ## Current Parity Status
 
 Implemented:
