@@ -21,6 +21,28 @@ export function corsOrigins(env: Env): string[] {
     .filter(Boolean);
 }
 
+export function isAllowedOrigin(origin: string, allowedOrigins: string[]): boolean {
+  if (allowedOrigins.includes("*") || allowedOrigins.includes(origin)) return true;
+
+  let parsedOrigin: URL;
+  try {
+    parsedOrigin = new URL(origin);
+  } catch {
+    return false;
+  }
+
+  return allowedOrigins.some((allowedOrigin) => {
+    if (!allowedOrigin.includes("*")) return false;
+    try {
+      const parsedAllowedOrigin = new URL(allowedOrigin.replace("*.", "wildcard."));
+      const suffix = parsedAllowedOrigin.hostname.replace(/^wildcard\./, ".");
+      return parsedOrigin.protocol === parsedAllowedOrigin.protocol && parsedOrigin.hostname.endsWith(suffix);
+    } catch {
+      return false;
+    }
+  });
+}
+
 export async function errorHandler(c: Context<{ Bindings: Env }>, next: Next) {
   try {
     await next();

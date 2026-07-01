@@ -9,7 +9,15 @@ export type UserMe = {
   employee_name?: string | null;
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
+function defaultApiBase() {
+  if (typeof window === "undefined") return "/api";
+  if (window.location.hostname.endsWith(".pages.dev")) {
+    return "https://dental-manager-api.imaderikiwidiastanasanjaya.workers.dev/api";
+  }
+  return "/api";
+}
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || defaultApiBase();
 const TOKEN_KEY = "dental_manager_token";
 
 export function getToken() {

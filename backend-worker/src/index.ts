@@ -8,7 +8,7 @@ import { dashboardRoutes } from "./routes/dashboard";
 import { payrollRoutes } from "./routes/payroll";
 import { reportsRoutes, templateResponse } from "./routes/reports";
 import { currentUser, hashPassword, type AppVariables } from "./auth";
-import { corsOrigins, errorHandler } from "./http";
+import { corsOrigins, errorHandler, isAllowedOrigin } from "./http";
 import { deleteExpiredArchives, seedDefaults } from "./db";
 import type { Env } from "./types";
 
@@ -17,7 +17,7 @@ const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 app.use("*", async (c, next) => {
   const origins = corsOrigins(c.env);
   return cors({
-    origin: (origin) => (origins.includes("*") || origins.includes(origin) ? origin : origins[0] || origin),
+    origin: (origin) => (isAllowedOrigin(origin, origins) ? origin : origins[0] || origin),
     allowHeaders: ["Authorization", "Content-Type"],
     allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
