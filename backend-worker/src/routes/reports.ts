@@ -103,7 +103,7 @@ reportsRoutes.get("/payroll", currentUser, async (c) => {
 
 reportsRoutes.get("/payroll/:period/slips/:employee_id.pdf", currentUser, async (c) => {
   const period = c.req.param("period") ?? currentPeriod();
-  const employeeId = Number(c.req.param("employee_id"));
+  const employeeId = Number((c.req.param("employee_id") ?? c.req.path.split("/").pop() ?? "").replace(/\.pdf$/i, ""));
   const summary = (await payrollSummaries(c.env, period)).find((row) => Number(row.employee_id) === employeeId);
   if (!summary?.id) throw new HTTPException(404, { message: "Slip payroll belum tersedia." });
   const bytes = await makePayrollSlipPdf(await getClinicName(c.env), period, summary);
@@ -610,31 +610,66 @@ async function makePayrollSlipPdf(clinic: string, period: string, row: Record<st
 }
 
 function drawPayrollSlipPage(page: PDFPage, fonts: PdfFonts, clinic: string, period: string, row: Record<string, unknown>) {
-  page.drawRectangle({ x: 48, y: 748, width: 499, height: 38, color: rgb(0.04, 0.18, 0.39) });
-  drawCentered(page, fonts.bold, `SLIP GAJI - ${clinic}`, 297, 762, 14, rgb(1, 1, 1));
-  page.drawText(`Periode ${periodLabel(period)}`, { x: 48, y: 720, size: 10, font: fonts.font });
-  page.drawText(String(row.status ?? "").toUpperCase(), { x: 486, y: 720, size: 10, font: fonts.bold });
-  const details: Array<[string, string]> = [
+  const x = 42;
+  const width = 510;
+  drawCentered(page, fonts.bold, `SLIP GAJI - ${clinic}`, 297, 786, 15);
+
+  const identityRows: Array<[string, string]> = [
     ["Nama Karyawan", String(row.employee_name ?? "-")],
     ["Jabatan", String(row.position ?? "-")],
-    ["Gaji Pokok", money(row.base_salary)],
-    ["Lembur", money(row.overtime_total)],
-    ["Bonus", money(row.bonus)],
-    ["Tunjangan Jabatan", money(row.position_allowance)],
-    ["Potongan", money(row.total_deduction)],
-    ["Nominal Transfer", money(row.net_salary)],
-    ["Bank", String(row.bank_name ?? "-")],
-    ["No Rekening", String(row.account_number ?? "-")],
+    ["Periode", periodLabel(period)],
   ];
-  let y = 680;
-  for (const [label, value] of details) {
-    const isTotal = label === "Nominal Transfer";
-    page.drawRectangle({ x: 48, y: y - 8, width: 499, height: 26, borderColor: rgb(0.82, 0.87, 0.93), borderWidth: 0.7, color: isTotal ? rgb(0.99, 0.89, 0.84) : undefined });
-    page.drawText(label, { x: 62, y, size: 10, font: isTotal ? fonts.bold : fonts.font });
-    page.drawText(value, { x: 340, y, size: 10, font: isTotal ? fonts.bold : fonts.font });
-    y -= 26;
+  let identityY = 738;
+  for (const [label, value] of identityRows) {
+    page.drawText(label, { x, y: identityY, size: 10, font: fonts.font });
+    page.drawText(value, { x: x + 118, y: identityY, size: 10, font: fonts.font });
+    identityY -= 20;
   }
+
+  let tableY = 648;
+  tableY = drawSlipSection(page, fonts, "PENDAPATAN", [
+    ["Gaji Pokok", money(row.base_salary)],
+    ["Bonus", money(row.bonus)],
+    ["Tunjangan", money(row.position_allowance)],
+    ["Lembur", money(row.overtime_total)],
+    ["Masuk Hari Minggu / Libur", money(row.sunday_fee)],
+    ["Double shift (Nerus)", money(row.double_shift_fee)],
+  ], x, tableY, width);
+  tableY = drawSlipSection(page, fonts, "POTONGAN", [
+    ["Keterlambatan / Potongan Lain", money(row.other_deduction)],
+    ["BPJS", money(row.bpjs_deduction)],
+    ["PPh 21", money(row.pph21)],
+  ], x, tableY, width);
+  drawSlipTotalRow(page, fonts, "TOTAL GAJI DITERIMA", money(row.net_salary), x, tableY, width);
   page.drawText(`Generated ${new Date().toISOString()}`, { x: 48, y: 48, size: 8, font: fonts.font, color: rgb(0.38, 0.44, 0.52) });
+}
+
+function drawSlipSection(page: PDFPage, fonts: PdfFonts, title: string, rows: Array<[string, string]>, x: number, y: number, width: number) {
+  const headerHeight = 20;
+  const rowHeight = 22;
+  const splitX = x + 334;
+  page.drawRectangle({ x, y, width, height: headerHeight, color: rgb(0.84, 0.91, 0.96), borderColor: rgb(0.1, 0.1, 0.1), borderWidth: 0.8 });
+  page.drawText(title, { x: x + 8, y: y + 6, size: 10, font: fonts.bold });
+  let currentY = y - rowHeight;
+  for (const [label, value] of rows) {
+    page.drawRectangle({ x, y: currentY, width, height: rowHeight, borderColor: rgb(0.1, 0.1, 0.1), borderWidth: 0.65 });
+    page.drawLine({ start: { x: splitX, y: currentY }, end: { x: splitX, y: currentY + rowHeight }, thickness: 0.65, color: rgb(0.1, 0.1, 0.1) });
+    page.drawText(label, { x: x + 8, y: currentY + 7, size: 9, font: fonts.font });
+    const valueWidth = fonts.font.widthOfTextAtSize(value, 9);
+    page.drawText(value, { x: x + width - valueWidth - 8, y: currentY + 7, size: 9, font: fonts.font });
+    currentY -= rowHeight;
+  }
+  return currentY;
+}
+
+function drawSlipTotalRow(page: PDFPage, fonts: PdfFonts, label: string, value: string, x: number, y: number, width: number) {
+  const rowHeight = 22;
+  const splitX = x + 334;
+  page.drawRectangle({ x, y, width, height: rowHeight, color: rgb(0.95, 0.68, 0.47), borderColor: rgb(0.1, 0.1, 0.1), borderWidth: 0.8 });
+  page.drawLine({ start: { x: splitX, y }, end: { x: splitX, y: y + rowHeight }, thickness: 0.8, color: rgb(0.1, 0.1, 0.1) });
+  page.drawText(label, { x: x + 8, y: y + 7, size: 9.5, font: fonts.bold });
+  const valueWidth = fonts.bold.widthOfTextAtSize(value, 9.5);
+  page.drawText(value, { x: x + width - valueWidth - 8, y: y + 7, size: 9.5, font: fonts.bold });
 }
 
 function drawPdfHeader(page: PDFPage, fonts: PdfFonts, title: string, clinic: string, period: string, status: string) {
