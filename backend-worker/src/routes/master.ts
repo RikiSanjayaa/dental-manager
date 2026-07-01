@@ -138,6 +138,29 @@ function identityWhere(target: string, payload: Record<string, unknown>) {
   return { sql: "name = ?", value: payload.name };
 }
 
+async function masterReferenceCount(env: Env, target: string, id: number): Promise<number> {
+  const checks: Record<string, Array<{ table: string; column: string }>> = {
+    treatments: [{ table: "doctortransaction", column: "treatment_id" }],
+    doctors: [
+      { table: "doctortransaction", column: "doctor_id" },
+      { table: "doctorperiodsummary", column: "doctor_id" },
+    ],
+    employees: [
+      { table: "user", column: "employee_id" },
+      { table: "attendancerecord", column: "employee_id" },
+      { table: "payrollrecord", column: "employee_id" },
+    ],
+  };
+  let total = 0;
+  for (const check of checks[target] ?? []) {
+    const row = await first<{ count: number }>(
+      env.DB.prepare(`SELECT COUNT(*) AS count FROM ${check.table} WHERE ${check.column} = ?`).bind(id)
+    );
+    total += Number(row?.count ?? 0);
+  }
+  return total;
+}
+
 async function buildMasterPreview(env: Env, target: string, rows: Record<string, unknown>[]) {
   const config = tables[target];
   if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
@@ -280,6 +303,12 @@ masterRoutes.delete("/:target/:id/permanent", currentUser, adminOnly, async (c) 
   const config = tables[target];
   if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
   const id = Number(c.req.param("id"));
+  const references = await masterReferenceCount(c.env, target, id);
+  if (references > 0) {
+    throw new HTTPException(409, {
+      message: "Data masih dipakai di transaksi/histori. Nonaktifkan data ini jika tidak ingin digunakan lagi.",
+    });
+  }
   await c.env.DB.prepare(`DELETE FROM ${config.table} WHERE id = ?`).bind(id).run();
   return c.json({ target, id, deleted: true });
 });
