@@ -1,13 +1,36 @@
 import type { AuditLogInput, Env, User } from "./types";
 import { nowIso } from "./http";
 
+const booleanFields = new Set([
+  "is_active",
+  "is_training",
+  "is_default",
+  "is_absent",
+  "is_sunday",
+  "is_holiday",
+  "is_double_shift",
+  "needs_review",
+]);
+
+function normalizeBooleans<T>(row: T): T {
+  if (!row || typeof row !== "object") return row;
+  const normalized = { ...(row as Record<string, unknown>) };
+  for (const field of booleanFields) {
+    if (field in normalized) {
+      normalized[field] = normalized[field] === true || normalized[field] === 1 || normalized[field] === "1";
+    }
+  }
+  return normalized as T;
+}
+
 export async function first<T>(query: D1PreparedStatement): Promise<T | null> {
-  return (await query.first<T>()) ?? null;
+  const row = (await query.first<T>()) ?? null;
+  return row ? normalizeBooleans(row) : null;
 }
 
 export async function all<T>(query: D1PreparedStatement): Promise<T[]> {
   const result = await query.all<T>();
-  return result.results ?? [];
+  return (result.results ?? []).map((row) => normalizeBooleans(row));
 }
 
 export async function getUserByUsername(env: Env, username: string): Promise<User | null> {
