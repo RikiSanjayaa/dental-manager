@@ -82,16 +82,22 @@ Pages will continue serving the frontend, while `/api/*` is handled by the `dent
 
 ## CI/CD
 
-Frontend deployment remains handled by Cloudflare Pages. Worker deployment is handled by GitHub Actions on every push to `main` that changes Worker-related files.
+Frontend deployment remains handled by Cloudflare Pages. Worker deployment should use the Cloudflare Workers Git integration/build settings from the same repository and `main` branch.
 
-Configure these repository secrets in GitHub before pushing to `main`:
+Recommended Worker build settings:
 
 ```text
-CLOUDFLARE_API_TOKEN
-CLOUDFLARE_ACCOUNT_ID
+Root directory:
+backend-worker
+
+Build command:
+npm ci && npm run typecheck && npm run test
+
+Deploy command:
+npm run d1:migrate:remote && npm run deploy
 ```
 
-The API token needs permission to deploy Workers and apply D1 migrations for the account/zone used by `op.devemaclinic.com`.
+With this setup, one push to `main` triggers the Pages frontend deployment and the Worker backend deployment inside Cloudflare.
 
 ## Current Parity Status
 
