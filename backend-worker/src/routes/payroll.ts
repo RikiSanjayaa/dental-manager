@@ -47,6 +47,60 @@ function assignmentSql(values: Record<string, unknown>) {
     .join(", ");
 }
 
+async function payrollSummaries(env: Env, period: string) {
+  return all<Record<string, unknown>>(
+    env.DB.prepare(
+      `SELECT p.id, e.id AS employee_id, e.name AS employee_name, e.position, e.join_date,
+              COALESCE(p.base_salary, e.base_salary, 0) AS base_salary,
+              COALESCE(p.working_days, e.working_days, 25) AS working_days,
+              COALESCE(p.auto_double_shift_count, 0) AS auto_double_shift_count,
+              COALESCE(p.auto_sunday_count, 0) AS auto_sunday_count,
+              p.double_shift_count_override,
+              p.sunday_count_override,
+              COALESCE(p.double_shift_count, 0) AS double_shift_count,
+              COALESCE(p.sunday_count, 0) AS sunday_count,
+              COALESCE(p.izin_count, 0) AS izin_count,
+              COALESCE(p.sakit_count, 0) AS sakit_count,
+              COALESCE(p.cuti_count, 0) AS cuti_count,
+              COALESCE(p.alpha_count, 0) AS alpha_count,
+              COALESCE(p.double_shift_fee, 0) AS double_shift_fee,
+              COALESCE(p.sunday_fee, 0) AS sunday_fee,
+              COALESCE(p.overtime_minutes, 0) AS overtime_minutes,
+              COALESCE(p.overtime_rate_per_minute, 250) AS overtime_rate_per_minute,
+              COALESCE(p.overtime_total, 0) AS overtime_total,
+              COALESCE(p.bonus, 0) AS bonus,
+              COALESCE(p.position_allowance, 0) AS position_allowance,
+              (
+                COALESCE(p.base_salary, e.base_salary, 0) +
+                COALESCE(p.double_shift_fee, 0) +
+                COALESCE(p.sunday_fee, 0) +
+                COALESCE(p.overtime_total, 0) +
+                COALESCE(p.bonus, 0) +
+                COALESCE(p.position_allowance, 0)
+              ) AS gross_salary,
+              COALESCE(p.bpjs_deduction, 0) AS bpjs_deduction,
+              COALESCE(p.other_deduction, 0) AS other_deduction,
+              COALESCE(p.pph21, 0) AS pph21,
+              (
+                COALESCE(p.bpjs_deduction, 0) +
+                COALESCE(p.other_deduction, 0) +
+                COALESCE(p.pph21, 0)
+              ) AS total_deduction,
+              COALESCE(p.net_salary, 0) AS net_salary,
+              COALESCE(p.payment_method, 'Transfer') AS payment_method,
+              COALESCE(p.bank_name, e.bank_name) AS bank_name,
+              COALESCE(p.account_name, e.account_name, e.name) AS account_name,
+              COALESCE(p.account_number, e.account_number) AS account_number,
+              COALESCE(p.needs_review, 0) AS needs_review,
+              COALESCE(p.status, 'not_calculated') AS status
+       FROM employee e
+       LEFT JOIN payrollrecord p ON p.employee_id = e.id AND p.period = ?
+       WHERE e.is_active = 1
+       ORDER BY e.id`
+    ).bind(period)
+  );
+}
+
 async function attendanceRule(env: Env): Promise<AttendanceRuleRow> {
   return (
     (await first<AttendanceRuleRow>(env.DB.prepare("SELECT * FROM attendancerule WHERE is_default = 1 LIMIT 1"))) || {
@@ -255,22 +309,34 @@ payrollRoutes.post("/payroll-periods/:period/calculate", adminOnly, async (c) =>
 });
 
 payrollRoutes.get("/payroll-periods/:period/summary", async (c) => {
-  return c.json(await all(c.env.DB.prepare("SELECT * FROM payrollrecord WHERE period = ?").bind(c.req.param("period"))));
+  return c.json(await payrollSummaries(c.env, c.req.param("period")));
 });
 
 payrollRoutes.get("/payroll-periods/:period/overview", async (c) => {
   const period = c.req.param("period");
-  const rows = await all<Record<string, unknown>>(c.env.DB.prepare("SELECT * FROM payrollrecord WHERE period = ?").bind(period));
+  const rows = await payrollSummaries(c.env, period);
+  const payrollRows = rows.filter((row) => row.id != null);
   const attendance = await all<Record<string, unknown>>(c.env.DB.prepare("SELECT * FROM attendancerecord WHERE period = ?").bind(period));
+  const payrollReviewCount = payrollRows.filter((row) => row.needs_review).length;
   return c.json({
     period,
-    status: rows.length ? (rows.every((row) => row.status === "locked") ? "locked" : "draft") : attendance.length ? "not_calculated" : "empty",
-    total_transfer: rows.reduce((sum, row) => sum + Number(row.net_salary || 0), 0),
-    total_gross: rows.reduce((sum, row) => sum + Number(row.base_salary || 0) + Number(row.overtime_total || 0) + Number(row.bonus || 0) + Number(row.position_allowance || 0), 0),
-    total_overtime: rows.reduce((sum, row) => sum + Number(row.overtime_total || 0), 0),
-    total_deductions: rows.reduce((sum, row) => sum + Number(row.bpjs_deduction || 0) + Number(row.pph21 || 0) + Number(row.other_deduction || 0), 0),
-    needs_review_count: rows.filter((row) => row.needs_review).length + attendance.filter((row) => row.needs_review).length,
-    record_count: rows.length,
+    status: payrollRows.length ? (payrollRows.every((row) => row.status === "locked") ? "locked" : "draft") : attendance.length ? "not_calculated" : "empty",
+    employee_count: rows.length,
+    attendance_count: attendance.length,
+    attendance_review_count: attendance.filter((row) => row.needs_review).length,
+    payroll_review_count: payrollReviewCount,
+    overtime_record_count: attendance.filter((row) => Number(row.overtime_minutes || 0) > 0).length,
+    total_base_salary: payrollRows.reduce((sum, row) => sum + Number(row.base_salary || 0), 0),
+    total_gross_salary: payrollRows.reduce((sum, row) => sum + Number(row.gross_salary || 0), 0),
+    total_overtime_minutes: payrollRows.reduce((sum, row) => sum + Number(row.overtime_minutes || 0), 0),
+    total_overtime: payrollRows.reduce((sum, row) => sum + Number(row.overtime_total || 0), 0),
+    total_deduction: payrollRows.reduce((sum, row) => sum + Number(row.total_deduction || 0), 0),
+    total_net_salary: payrollRows.reduce((sum, row) => sum + Number(row.net_salary || 0), 0),
+    total_transfer: payrollRows.reduce((sum, row) => sum + Number(row.net_salary || 0), 0),
+    total_gross: payrollRows.reduce((sum, row) => sum + Number(row.gross_salary || 0), 0),
+    total_deductions: payrollRows.reduce((sum, row) => sum + Number(row.total_deduction || 0), 0),
+    needs_review_count: payrollReviewCount + attendance.filter((row) => row.needs_review).length,
+    record_count: payrollRows.length,
     summaries: rows,
   });
 });
@@ -290,11 +356,19 @@ payrollRoutes.get("/me/payroll/:period/export", async () => {
 });
 
 payrollRoutes.get("/payroll-periods/:period/overtime", async (c) => {
-  return c.json(await all(c.env.DB.prepare("SELECT * FROM attendancerecord WHERE period = ? AND overtime_minutes > 0").bind(c.req.param("period"))));
+  const employeeId = c.req.query("employee_id");
+  let sql = "SELECT * FROM attendancerecord WHERE period = ? AND overtime_minutes > 0";
+  const params: unknown[] = [c.req.param("period")];
+  if (employeeId) {
+    sql += " AND employee_id = ?";
+    params.push(Number(employeeId));
+  }
+  sql += " ORDER BY work_date DESC, id DESC";
+  return c.json(await all(c.env.DB.prepare(sql).bind(...params)));
 });
 
 payrollRoutes.get("/payroll-periods/:period/slips/:employee_id", async (c) => {
-  return c.json(await first(c.env.DB.prepare("SELECT * FROM payrollrecord WHERE period = ? AND employee_id = ?").bind(c.req.param("period"), Number(c.req.param("employee_id")))));
+  return c.json((await payrollSummaries(c.env, c.req.param("period"))).find((row) => row.employee_id === Number(c.req.param("employee_id"))) ?? null);
 });
 
 payrollRoutes.patch("/payroll-records/:id", adminOnly, async (c) => {
@@ -312,7 +386,9 @@ payrollRoutes.patch("/payroll-records/:id", adminOnly, async (c) => {
   ]);
   if (!Object.keys(values).length) throw new HTTPException(400, { message: "Payload kosong." });
   await c.env.DB.prepare(`UPDATE payrollrecord SET ${assignmentSql(values)} WHERE id = ?`).bind(...Object.values(values), id).run();
-  return c.json(await first(c.env.DB.prepare("SELECT * FROM payrollrecord WHERE id = ?").bind(id)));
+  const row = await first<{ period: string; employee_id: number }>(c.env.DB.prepare("SELECT period, employee_id FROM payrollrecord WHERE id = ?").bind(id));
+  if (!row) throw new HTTPException(404, { message: "Data tidak ditemukan" });
+  return c.json((await payrollSummaries(c.env, row.period)).find((item) => item.employee_id === row.employee_id) ?? null);
 });
 
 payrollRoutes.post("/payroll-periods/:period/lock", adminOnly, async (c) => {

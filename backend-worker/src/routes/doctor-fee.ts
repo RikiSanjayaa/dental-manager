@@ -104,18 +104,69 @@ async function hydrateAndCalculate(env: Env, body: Record<string, unknown>): Pro
 }
 
 async function rowsForPeriod(env: Env, period: string) {
-  return all<Transaction>(env.DB.prepare("SELECT * FROM doctortransaction WHERE period = ? ORDER BY transaction_date DESC, id DESC").bind(period));
+  return all<Transaction>(
+    env.DB.prepare(
+      `SELECT t.*, d.name AS doctor_name, tr.name AS treatment_name,
+              COALESCE(t.bhp_override, tr.bhp_cost, 0) AS bhp_amount,
+              COALESCE(t.price_override, tr.treatment_price, 0) AS price_amount
+       FROM doctortransaction t
+       LEFT JOIN doctor d ON d.id = t.doctor_id
+       LEFT JOIN treatment tr ON tr.id = t.treatment_id
+       WHERE t.period = ?
+       ORDER BY t.transaction_date DESC, t.id DESC`
+    ).bind(period)
+  );
+}
+
+async function doctorSummaries(env: Env, period: string) {
+  return all<Record<string, unknown>>(
+    env.DB.prepare(
+      `SELECT s.id, d.id AS doctor_id, d.name AS doctor_name, d.bank_name, d.account_name, d.account_number,
+              COALESCE(tx.transaction_count, 0) AS transaction_count,
+              COALESCE(s.treatment_fee_total, tx.treatment_fee_total, 0) AS treatment_fee_total,
+              COALESCE(s.ortho_fee_total, tx.ortho_fee_total, 0) AS ortho_fee_total,
+              COALESCE(s.total_fee, tx.total_fee, 0) AS total_fee,
+              COALESCE(s.total_bill, tx.total_bill, 0) AS total_bill,
+              COALESCE(s.deduction, 0) AS deduction,
+              COALESCE(s.tax, 0) AS tax,
+              COALESCE(s.transfer_amount, 0) AS transfer_amount,
+              COALESCE(s.status, 'not_calculated') AS status,
+              s.calculated_at
+       FROM doctor d
+       LEFT JOIN doctorperiodsummary s ON s.doctor_id = d.id AND s.period = ?
+       LEFT JOIN (
+         SELECT period, doctor_id, COUNT(*) AS transaction_count,
+                SUM(CASE WHEN COALESCE(special_fee_amount, 0) = 0 THEN COALESCE(doctor_fee_amount, 0) ELSE 0 END) AS treatment_fee_total,
+                SUM(COALESCE(special_fee_amount, 0)) AS ortho_fee_total,
+                SUM(CASE
+                  WHEN COALESCE(special_fee_amount, 0) = 0 THEN COALESCE(doctor_fee_amount, 0)
+                  ELSE COALESCE(special_fee_amount, 0)
+                END) AS total_fee,
+                SUM(COALESCE(total_bill_amount, 0)) AS total_bill
+         FROM doctortransaction
+         WHERE period = ?
+         GROUP BY period, doctor_id
+       ) tx ON tx.doctor_id = d.id
+       WHERE s.id IS NOT NULL OR tx.transaction_count > 0
+       ORDER BY d.name, d.id`
+    ).bind(period, period)
+  );
 }
 
 doctorFeeRoutes.get("/doctor-transactions", async (c) => {
   const period = c.req.query("period");
-  let sql = "SELECT * FROM doctortransaction";
+  let sql = `SELECT t.*, d.name AS doctor_name, tr.name AS treatment_name,
+                    COALESCE(t.bhp_override, tr.bhp_cost, 0) AS bhp_amount,
+                    COALESCE(t.price_override, tr.treatment_price, 0) AS price_amount
+             FROM doctortransaction t
+             LEFT JOIN doctor d ON d.id = t.doctor_id
+             LEFT JOIN treatment tr ON tr.id = t.treatment_id`;
   const params: unknown[] = [];
   if (period) {
-    sql += " WHERE period = ?";
+    sql += " WHERE t.period = ?";
     params.push(period);
   }
-  sql += " ORDER BY transaction_date DESC, id DESC";
+  sql += " ORDER BY t.transaction_date DESC, t.id DESC";
   return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(sql).bind(...params)));
 });
 
@@ -194,23 +245,31 @@ doctorFeeRoutes.post("/doctor-periods/:period/calculate", adminOnly, async (c) =
 });
 
 doctorFeeRoutes.get("/doctor-periods/:period/summary", async (c) => {
-  return c.json(await all(c.env.DB.prepare("SELECT * FROM doctorperiodsummary WHERE period = ?").bind(c.req.param("period"))));
+  return c.json(await doctorSummaries(c.env, c.req.param("period")));
 });
 
 doctorFeeRoutes.get("/doctor-periods/:period/overview", async (c) => {
   const period = c.req.param("period") ?? "";
   const transactions = await rowsForPeriod(c.env, period);
-  const summaries = await all<Record<string, unknown>>(c.env.DB.prepare("SELECT * FROM doctorperiodsummary WHERE period = ?").bind(period));
+  const summaries = await doctorSummaries(c.env, period);
+  const calculatedSummaries = summaries.filter((row) => row.id != null);
   const needsReview = transactions.filter((row) => row.needs_review).length;
   return c.json({
     period,
+    doctor_count: summaries.length,
     total_bill: transactions.reduce((sum, row) => sum + Number(row.total_bill_amount || 0), 0),
+    treatment_fee_total: summaries.reduce((sum, row) => sum + Number(row.treatment_fee_total || 0), 0),
+    ortho_fee_total: summaries.reduce((sum, row) => sum + Number(row.ortho_fee_total || 0), 0),
     total_fee: summaries.reduce((sum, row) => sum + Number(row.total_fee || 0), 0),
-    total_transfer: summaries.reduce((sum, row) => sum + Number(row.transfer_amount || 0), 0),
-    total_tax: summaries.reduce((sum, row) => sum + Number(row.tax || 0), 0),
+    total_transfer: calculatedSummaries.reduce((sum, row) => sum + Number(row.transfer_amount || 0), 0),
+    deduction: calculatedSummaries.reduce((sum, row) => sum + Number(row.deduction || 0), 0),
+    total_tax: calculatedSummaries.reduce((sum, row) => sum + Number(row.tax || 0), 0),
+    tax: calculatedSummaries.reduce((sum, row) => sum + Number(row.tax || 0), 0),
+    transfer_amount: calculatedSummaries.reduce((sum, row) => sum + Number(row.transfer_amount || 0), 0),
     transaction_count: transactions.length,
+    review_count: needsReview,
     needs_review_count: needsReview,
-    status: summaries.length ? (summaries.every((row) => row.status === "locked") ? "locked" : "draft") : transactions.length ? "not_calculated" : "empty",
+    status: calculatedSummaries.length ? (calculatedSummaries.every((row) => row.status === "locked") ? "locked" : "draft") : transactions.length ? "not_calculated" : "empty",
     summaries,
   });
 });
