@@ -63,6 +63,10 @@ function assignmentSql(values: Record<string, unknown>) {
     .join(", ");
 }
 
+function booleanToInt(value: unknown): 0 | 1 {
+  return value === true || value === 1 || value === "1" || value === "true" ? 1 : 0;
+}
+
 async function defaultRule(env: Env): Promise<Rule> {
   return (
     (await first<Rule>(env.DB.prepare("SELECT * FROM doctorfeerule WHERE is_default = 1 LIMIT 1"))) || {
@@ -79,6 +83,7 @@ async function hydrateAndCalculate(env: Env, body: Record<string, unknown>): Pro
   const treatment = body.treatment_id
     ? await first<Treatment>(env.DB.prepare("SELECT * FROM treatment WHERE id = ?").bind(body.treatment_id))
     : null;
+  const hasManualReview = Object.prototype.hasOwnProperty.call(body, "needs_review");
   const transaction: Transaction = {
     period: String(body.period),
     transaction_date: String(body.transaction_date),
@@ -92,8 +97,8 @@ async function hydrateAndCalculate(env: Env, body: Record<string, unknown>): Pro
     price_override: body.price_override == null || body.price_override === "" ? null : Number(body.price_override),
     special_fee_amount: Number(body.special_fee_amount ?? 0),
     fee_rate: body.fee_rate == null || body.fee_rate === "" ? null : Number(body.fee_rate),
-    needs_review: treatment ? 0 : 1,
-    review_note: treatment ? null : "Treatment belum ditemukan di master.",
+    needs_review: hasManualReview ? booleanToInt(body.needs_review) : treatment ? 0 : 1,
+    review_note: body.review_note == null ? (treatment ? null : "Treatment belum ditemukan di master.") : String(body.review_note),
   };
   return calculateDoctorTransaction(transaction, treatment, doctor, await defaultRule(env));
 }
