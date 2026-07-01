@@ -26,8 +26,6 @@ TABLES = [
     "attendanceholiday",
     "doctorfeerule",
     "appsetting",
-    "importfile",
-    "reportarchive",
     "doctortransaction",
     "doctorperiodsummary",
     "attendancerecord",
@@ -105,18 +103,10 @@ def main() -> None:
     connection = sqlite3.connect(db_path)
     connection.row_factory = sqlite3.Row
     try:
-        statements: list[str] = [
-            "PRAGMA defer_foreign_keys = true;",
-            "BEGIN TRANSACTION;",
-        ]
+        statements: list[str] = ["PRAGMA defer_foreign_keys = true;"]
         for table in TABLES:
             statements.extend(export_table(connection, table))
-        statements.extend(
-            [
-                "COMMIT;",
-                "PRAGMA defer_foreign_keys = false;",
-            ]
-        )
+        statements.append("PRAGMA defer_foreign_keys = false;")
         out_path.write_text("\n".join(statements) + "\n", encoding="utf-8")
     finally:
         connection.close()
