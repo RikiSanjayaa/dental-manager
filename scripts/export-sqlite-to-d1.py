@@ -3,6 +3,7 @@
 
 Usage:
   python scripts/export-sqlite-to-d1.py --db data/dental_manager.db --out data/d1-export.sql
+  python scripts/export-sqlite-to-d1.py data/dental_manager.db data/d1-export.sql
 """
 
 from __future__ import annotations
@@ -86,15 +87,19 @@ def export_table(connection: sqlite3.Connection, table: str) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("paths", nargs="*", help="Optional positional form: <db> <out>.")
     parser.add_argument("--db", default="data/dental_manager.db", help="Path to source SQLite database.")
     parser.add_argument("--out", default="data/d1-export.sql", help="Path for generated SQL.")
     args = parser.parse_args()
 
-    db_path = Path(args.db)
+    if len(args.paths) > 2:
+        parser.error("Expected at most two positional arguments: <db> <out>.")
+
+    db_path = Path(args.paths[0] if args.paths else args.db)
     if not db_path.exists():
         raise SystemExit(f"SQLite database not found: {db_path}")
 
-    out_path = Path(args.out)
+    out_path = Path(args.paths[1] if len(args.paths) > 1 else args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     connection = sqlite3.connect(db_path)
