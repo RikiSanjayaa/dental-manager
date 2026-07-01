@@ -1,8 +1,11 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { authRoutes } from "./routes/auth";
+import { auditRoutes } from "./routes/audit";
+import { doctorFeeRoutes } from "./routes/doctor-fee";
 import { masterRoutes } from "./routes/master";
 import { dashboardRoutes } from "./routes/dashboard";
+import { payrollRoutes } from "./routes/payroll";
 import { reportsRoutes } from "./routes/reports";
 import { currentUser, hashPassword, type AppVariables } from "./auth";
 import { corsOrigins, errorHandler } from "./http";
@@ -29,8 +32,11 @@ app.get("/health", async (c) => {
 
 app.route("/auth", authRoutes);
 app.use("*", currentUser);
+app.route("/audit-logs", auditRoutes);
 app.route("/", dashboardRoutes);
 app.route("/", masterRoutes);
+app.route("/", doctorFeeRoutes);
+app.route("/", payrollRoutes);
 app.route("/reports", reportsRoutes);
 
 export default {

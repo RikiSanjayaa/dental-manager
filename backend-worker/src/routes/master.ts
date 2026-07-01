@@ -238,6 +238,26 @@ for (const [route, table] of [
   masterRoutes.get(`/settings/${route}`, currentUser, adminOnly, async (c) => {
     return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(`SELECT * FROM ${table} ORDER BY id`)));
   });
+
+  masterRoutes.post(`/settings/${route}`, currentUser, adminOnly, async (c) => {
+    const body = await c.req.json<Record<string, unknown>>();
+    if (body.is_default) await c.env.DB.prepare(`UPDATE ${table} SET is_default = 0`).run();
+    const values = { ...body, created_at: nowIso() };
+    const fields = Object.keys(values);
+    const result = await c.env.DB.prepare(`INSERT INTO ${table} (${fields.join(", ")}) VALUES (${fields.map(() => "?").join(", ")})`)
+      .bind(...Object.values(values))
+      .run();
+    return c.json(await getById(c as never, table, Number(result.meta.last_row_id)), 201);
+  });
+
+  masterRoutes.patch(`/settings/${route}/:id`, currentUser, adminOnly, async (c) => {
+    const id = Number(c.req.param("id"));
+    const body = await c.req.json<Record<string, unknown>>();
+    if (body.is_default) await c.env.DB.prepare(`UPDATE ${table} SET is_default = 0`).run();
+    if (!Object.keys(body).length) throw new HTTPException(400, { message: "Payload kosong." });
+    await c.env.DB.prepare(`UPDATE ${table} SET ${assignmentSql(body)} WHERE id = ?`).bind(...Object.values(body), id).run();
+    return c.json(await getById(c as never, table, id));
+  });
 }
 
 masterRoutes.get("/settings/attendance-holidays", currentUser, async (c) => {
@@ -258,4 +278,54 @@ masterRoutes.get("/settings/attendance-holidays", currentUser, async (c) => {
   }
   sql += " ORDER BY holiday_date";
   return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(sql).bind(...params)));
+});
+
+masterRoutes.post("/settings/attendance-holidays", currentUser, adminOnly, async (c) => {
+  const body = await c.req.json<Record<string, unknown>>();
+  if (!body.holiday_date) throw new HTTPException(400, { message: "Tanggal libur wajib diisi." });
+  const existing = await first<Record<string, unknown>>(
+    c.env.DB.prepare("SELECT * FROM attendanceholiday WHERE holiday_date = ?").bind(body.holiday_date)
+  );
+  if (existing) {
+    await c.env.DB.prepare("UPDATE attendanceholiday SET name = ?, is_holiday = ? WHERE id = ?")
+      .bind(body.name ?? null, body.is_holiday === false ? 0 : 1, existing.id)
+      .run();
+    return c.json(await getById(c as never, "attendanceholiday", Number(existing.id)));
+  }
+  const result = await c.env.DB.prepare("INSERT INTO attendanceholiday (holiday_date, name, is_holiday, created_at) VALUES (?, ?, ?, ?)")
+    .bind(body.holiday_date, body.name ?? null, body.is_holiday === false ? 0 : 1, nowIso())
+    .run();
+  return c.json(await getById(c as never, "attendanceholiday", Number(result.meta.last_row_id)), 201);
+});
+
+masterRoutes.delete("/settings/attendance-holidays/:id", currentUser, adminOnly, async (c) => {
+  await c.env.DB.prepare("DELETE FROM attendanceholiday WHERE id = ?").bind(Number(c.req.param("id"))).run();
+  return c.json({ status: "ok" });
+});
+
+masterRoutes.post("/master-data/import/:target/preview", currentUser, adminOnly, async () => {
+  throw new HTTPException(501, { message: "Import master data XLSX Worker belum selesai." });
+});
+
+masterRoutes.post("/master-data/import/:target/:id/commit", currentUser, adminOnly, async () => {
+  throw new HTTPException(501, { message: "Import master data XLSX Worker belum selesai." });
+});
+
+masterRoutes.post("/master-data/import/treatments", currentUser, adminOnly, async () => {
+  throw new HTTPException(501, { message: "Import master data XLSX Worker belum selesai." });
+});
+
+masterRoutes.post("/master-data/import/doctors", currentUser, adminOnly, async () => {
+  throw new HTTPException(501, { message: "Import master data XLSX Worker belum selesai." });
+});
+
+masterRoutes.post("/master-data/import/employees", currentUser, adminOnly, async () => {
+  throw new HTTPException(501, { message: "Import master data XLSX Worker belum selesai." });
+});
+
+masterRoutes.post("/dev/refresh-database", currentUser, adminOnly, async (c) => {
+  if ((c.env.APP_ENV || "development").toLowerCase() === "production") {
+    throw new HTTPException(403, { message: "Refresh database hanya tersedia di development." });
+  }
+  throw new HTTPException(501, { message: "Refresh database Worker belum diimplementasikan." });
 });
