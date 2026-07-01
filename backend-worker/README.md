@@ -99,6 +99,8 @@ npm run d1:migrate:remote && npm run deploy
 
 With this setup, one push to `main` triggers the Pages frontend deployment and the Worker backend deployment inside Cloudflare.
 
+If the selected repository or branch is changed in Cloudflare, push a fresh commit to `main` so the new connection runs its first deployment.
+
 ## Current Parity Status
 
 Implemented:
