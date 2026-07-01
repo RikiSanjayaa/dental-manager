@@ -34,11 +34,15 @@ export async function all<T>(query: D1PreparedStatement): Promise<T[]> {
 }
 
 export async function getUserByUsername(env: Env, username: string): Promise<User | null> {
-  return first<User>(env.DB.prepare("SELECT * FROM user WHERE username = ?").bind(username));
+  return first<User>(
+    env.DB.prepare("SELECT id, username, full_name, LOWER(role) AS role, employee_id, hashed_password, is_active, created_at FROM user WHERE LOWER(username) = LOWER(?)").bind(username)
+  );
 }
 
 export async function getUserById(env: Env, id: number): Promise<User | null> {
-  return first<User>(env.DB.prepare("SELECT * FROM user WHERE id = ?").bind(id));
+  return first<User>(
+    env.DB.prepare("SELECT id, username, full_name, LOWER(role) AS role, employee_id, hashed_password, is_active, created_at FROM user WHERE id = ?").bind(id)
+  );
 }
 
 export async function seedDefaults(env: Env, hashPassword: (password: string) => Promise<string>) {
