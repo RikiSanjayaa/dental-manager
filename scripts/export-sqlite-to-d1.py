@@ -32,6 +32,11 @@ TABLES = [
     "payrollrecord",
 ]
 
+CLEAR_ONLY_TABLES = [
+    "importfile",
+    "reportarchive",
+]
+
 JSON_COLUMNS = {
     "auditlog": {"metadata_json"},
     "importfile": {"preview_json", "errors_json"},
@@ -58,19 +63,30 @@ def normalize_value(table: str, column: str, value: Any) -> Any:
     return value
 
 
-def export_table(connection: sqlite3.Connection, table: str) -> list[str]:
-    exists = connection.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
-        (table,),
-    ).fetchone()
-    if not exists:
+def table_exists(connection: sqlite3.Connection, table: str) -> bool:
+    return bool(
+        connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table,),
+        ).fetchone()
+    )
+
+
+def delete_table(connection: sqlite3.Connection, table: str) -> list[str]:
+    if not table_exists(connection, table):
+        return []
+    return [f'DELETE FROM "{table}";']
+
+
+def insert_table(connection: sqlite3.Connection, table: str) -> list[str]:
+    if not table_exists(connection, table):
         return []
 
     rows = connection.execute(f'SELECT * FROM "{table}"').fetchall()
     if not rows:
         return []
     columns = [description[0] for description in connection.execute(f'SELECT * FROM "{table}" LIMIT 0').description]
-    statements = [f'DELETE FROM "{table}";']
+    statements = []
     for row in rows:
         values = [
             sql_literal(normalize_value(table, column, row[column]))
@@ -81,6 +97,18 @@ def export_table(connection: sqlite3.Connection, table: str) -> list[str]:
             f'INSERT INTO "{table}" ({quoted_columns}) VALUES ({", ".join(values)});'
         )
     return statements
+
+
+def export_table(connection: sqlite3.Connection, table: str) -> list[str]:
+    """Return delete and insert statements for a single table.
+
+    Kept for direct script reuse; main exports deletes and inserts in separate
+    dependency-aware phases for D1 remote imports.
+    """
+    if not table_exists(connection, table):
+        return []
+
+    return delete_table(connection, table) + insert_table(connection, table)
 
 
 def main() -> None:
@@ -104,8 +132,10 @@ def main() -> None:
     connection.row_factory = sqlite3.Row
     try:
         statements: list[str] = ["PRAGMA defer_foreign_keys = true;"]
+        for table in [*CLEAR_ONLY_TABLES, *reversed(TABLES)]:
+            statements.extend(delete_table(connection, table))
         for table in TABLES:
-            statements.extend(export_table(connection, table))
+            statements.extend(insert_table(connection, table))
         statements.append("PRAGMA defer_foreign_keys = false;")
         out_path.write_text("\n".join(statements) + "\n", encoding="utf-8")
     finally:
