@@ -1,0 +1,36 @@
+{
+  "name": "dental-manager-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dry-run": "wrangler deploy --dry-run",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "d1:create": "wrangler d1 create dental-manager",
+    "d1:migrate:local": "wrangler d1 migrations apply dental-manager --local",
+    "d1:migrate:remote": "wrangler d1 migrations apply dental-manager --remote",
+    "d1:import:remote": "wrangler d1 execute dental-manager --remote --file ../data/d1-export.sql",
+    "r2:create:reports": "wrangler r2 bucket create dental-manager-reports",
+    "r2:create:uploads": "wrangler r2 bucket create dental-manager-uploads"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.5.0",
+    "bcryptjs": "^2.4.3",
+    "dental-manager": "file:..",
+    "fflate": "^0.8.2",
+    "hono": "^4.6.16",
+    "pdf-lib": "^1.17.1",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.17.0",
+    "@cloudflare/workers-types": "^4.20250617.0",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.9",
+    "wrangler": "^4.106.0"
+  }
+}
