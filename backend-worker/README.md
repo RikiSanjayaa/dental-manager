@@ -72,7 +72,13 @@ npm run worker:deploy:dry-run
 npm run worker:deploy
 ```
 
-After deploy, update the frontend production API base or Cloudflare Pages routing so `/api/*` reaches the `dental-manager-api` Worker.
+If the frontend is already on Cloudflare Pages, keep `VITE_API_BASE_URL` unset or set it to `/api`, then attach the Worker to the same zone with a route like:
+
+```text
+your-domain.example/api/*
+```
+
+Pages will continue serving the frontend, while `/api/*` is handled by the `dental-manager-api` Worker. The Worker accepts both root API paths (`/auth/login`) and prefixed Pages routes (`/api/auth/login`).
 
 ## Current Parity Status
 

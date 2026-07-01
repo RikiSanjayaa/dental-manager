@@ -40,8 +40,22 @@ app.route("/", doctorFeeRoutes);
 app.route("/", payrollRoutes);
 app.route("/reports", reportsRoutes);
 
+function withApiPrefixStripped(request: Request): Request {
+  const url = new URL(request.url);
+  if (url.pathname === "/api") {
+    url.pathname = "/";
+  } else if (url.pathname.startsWith("/api/")) {
+    url.pathname = url.pathname.slice(4);
+  } else {
+    return request;
+  }
+  return new Request(url.toString(), request);
+}
+
 export default {
-  fetch: app.fetch,
+  fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    return app.fetch(withApiPrefixStripped(request), env, ctx);
+  },
   async scheduled(_: ScheduledEvent, env: Env): Promise<void> {
     await deleteExpiredArchives(env);
   },
