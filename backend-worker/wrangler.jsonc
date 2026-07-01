@@ -5,7 +5,7 @@
   "compatibility_date": "2026-06-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "vars": {
     "APP_NAME": "Dental Manager",
@@ -13,27 +13,27 @@
     "ACCESS_TOKEN_EXPIRE_MINUTES": "720",
     "ADMIN_USERNAME": "admin",
     "ADMIN_PASSWORD": "admin12345",
-    "CORS_ORIGINS": "http://localhost:5173,http://localhost:8080"
+    "CORS_ORIGINS": "http://localhost:5173,http://localhost:8080",
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "dental-manager",
-      "database_id": "replace-with-d1-database-id",
-      "migrations_dir": "migrations"
-    }
+      "database_id": "6a5d3234-d2d0-47a5-ae31-a170b4f7f89d",
+      "migrations_dir": "migrations",
+    },
   ],
   "r2_buckets": [
     {
       "binding": "REPORTS",
-      "bucket_name": "dental-manager-reports"
+      "bucket_name": "dental-manager-reports",
     },
     {
       "binding": "UPLOADS",
-      "bucket_name": "dental-manager-uploads"
-    }
+      "bucket_name": "dental-manager-uploads",
+    },
   ],
   "triggers": {
-    "crons": ["17 18 * * *"]
-  }
+    "crons": ["17 18 * * *"],
+  },
 }
