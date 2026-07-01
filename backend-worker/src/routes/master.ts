@@ -1,0 +1,261 @@
+import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
+import { adminOnly, currentUser, hashPassword, type AppVariables } from "../auth";
+import { all, first, recordAudit } from "../db";
+import { nowIso } from "../http";
+import type { Env } from "../types";
+
+type TableConfig = {
+  table: string;
+  searchable: string;
+  mutable: string[];
+  adminOnly?: boolean;
+};
+
+const tables: Record<string, TableConfig> = {
+  employees: {
+    table: "employee",
+    searchable: "name",
+    mutable: [
+      "name",
+      "attendance_id",
+      "position",
+      "join_date",
+      "base_salary",
+      "working_days",
+      "is_training",
+      "bank_name",
+      "account_name",
+      "account_number",
+      "is_active",
+    ],
+  },
+  doctors: {
+    table: "doctor",
+    searchable: "name",
+    mutable: [
+      "name",
+      "bank_name",
+      "account_name",
+      "account_number",
+      "nik",
+      "normal_fee_rate",
+      "ortho_fee_rate",
+      "tax_rate",
+      "is_active",
+    ],
+  },
+  treatments: {
+    table: "treatment",
+    searchable: "name",
+    mutable: [
+      "code",
+      "name",
+      "category",
+      "doctor_cost",
+      "specialist_cost",
+      "bhp_cost",
+      "service_fee",
+      "treatment_price",
+      "notes",
+      "is_active",
+    ],
+  },
+};
+
+export const masterRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
+
+function pick(body: Record<string, unknown>, fields: string[]) {
+  return Object.fromEntries(fields.filter((field) => field in body).map((field) => [field, body[field]]));
+}
+
+async function getById(c: never, table: string, id: number) {
+  return first<Record<string, unknown>>((c as any).env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(id));
+}
+
+function assignmentSql(values: Record<string, unknown>) {
+  return Object.keys(values)
+    .map((field) => `${field} = ?`)
+    .join(", ");
+}
+
+async function listTable(env: Env, config: TableConfig, search: string | null) {
+  if (search) {
+    return all<Record<string, unknown>>(
+      env.DB.prepare(`SELECT * FROM ${config.table} WHERE ${config.searchable} LIKE ? ORDER BY id`).bind(`%${search}%`)
+    );
+  }
+  return all<Record<string, unknown>>(env.DB.prepare(`SELECT * FROM ${config.table} ORDER BY id`));
+}
+
+for (const [path, config] of Object.entries(tables)) {
+  masterRoutes.get(`/${path}`, currentUser, async (c) => {
+    const user = c.get("user");
+    if (path === "employees" && user.role === "operator") {
+      if (!user.employee_id) return c.json([]);
+      const employee = await c.env.DB.prepare("SELECT * FROM employee WHERE id = ?").bind(user.employee_id).first();
+      return c.json(employee ? [employee] : []);
+    }
+    return c.json(await listTable(c.env, config, c.req.query("search") ?? null));
+  });
+
+  masterRoutes.post(`/${path}`, currentUser, adminOnly, async (c) => {
+    const body = await c.req.json<Record<string, unknown>>();
+    const values = { ...pick(body, config.mutable), created_at: nowIso() };
+    if (!Object.keys(values).length) throw new HTTPException(400, { message: "Payload kosong." });
+    const fields = Object.keys(values);
+    const placeholders = fields.map(() => "?").join(", ");
+    const result = await c.env.DB.prepare(`INSERT INTO ${config.table} (${fields.join(", ")}) VALUES (${placeholders})`)
+      .bind(...Object.values(values))
+      .run();
+    const row = await getById(c as never, config.table, Number(result.meta.last_row_id));
+    return c.json(row, 201);
+  });
+
+  masterRoutes.patch(`/${path}/:id`, currentUser, adminOnly, async (c) => {
+    const id = Number(c.req.param("id"));
+    const body = await c.req.json<Record<string, unknown>>();
+    const values = pick(body, config.mutable);
+    if (!Object.keys(values).length) throw new HTTPException(400, { message: "Payload kosong." });
+    await c.env.DB.prepare(`UPDATE ${config.table} SET ${assignmentSql(values)} WHERE id = ?`)
+      .bind(...Object.values(values), id)
+      .run();
+    const row = await getById(c as never, config.table, id);
+    if (!row) throw new HTTPException(404, { message: "Data tidak ditemukan" });
+    return c.json(row);
+  });
+
+  masterRoutes.delete(`/${path}/:id`, currentUser, adminOnly, async (c) => {
+    const id = Number(c.req.param("id"));
+    await c.env.DB.prepare(`UPDATE ${config.table} SET is_active = 0 WHERE id = ?`).bind(id).run();
+    const row = await getById(c as never, config.table, id);
+    if (!row) throw new HTTPException(404, { message: "Data tidak ditemukan" });
+    return c.json(row);
+  });
+}
+
+masterRoutes.post("/:target/:id/activate", currentUser, adminOnly, async (c) => {
+  const target = c.req.param("target") ?? "";
+  const config = tables[target];
+  if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
+  const id = Number(c.req.param("id"));
+  await c.env.DB.prepare(`UPDATE ${config.table} SET is_active = 1 WHERE id = ?`).bind(id).run();
+  return c.json({ target, id, is_active: true });
+});
+
+masterRoutes.post("/:target/:id/deactivate", currentUser, adminOnly, async (c) => {
+  const target = c.req.param("target") ?? "";
+  const config = tables[target];
+  if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
+  const id = Number(c.req.param("id"));
+  await c.env.DB.prepare(`UPDATE ${config.table} SET is_active = 0 WHERE id = ?`).bind(id).run();
+  return c.json({ target, id, is_active: false });
+});
+
+masterRoutes.delete("/:target/:id/permanent", currentUser, adminOnly, async (c) => {
+  const target = c.req.param("target") ?? "";
+  const config = tables[target];
+  if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
+  const id = Number(c.req.param("id"));
+  await c.env.DB.prepare(`DELETE FROM ${config.table} WHERE id = ?`).bind(id).run();
+  return c.json({ target, id, deleted: true });
+});
+
+masterRoutes.get("/users", currentUser, adminOnly, async (c) => {
+  const rows = await all<Record<string, unknown>>(
+    c.env.DB.prepare(
+      `SELECT user.id, user.username, user.full_name, user.role, user.employee_id, employee.name AS employee_name, user.is_active
+       FROM user LEFT JOIN employee ON employee.id = user.employee_id ORDER BY user.id`
+    )
+  );
+  return c.json(rows);
+});
+
+masterRoutes.post("/users", currentUser, adminOnly, async (c) => {
+  const admin = c.get("user");
+  const body = await c.req.json<Record<string, unknown>>();
+  const password = String(body.password || "");
+  if (!body.username || !body.full_name || !password) throw new HTTPException(400, { message: "Data user belum lengkap." });
+  const result = await c.env.DB.prepare(
+    `INSERT INTO user (username, full_name, role, employee_id, hashed_password, is_active, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      String(body.username),
+      String(body.full_name),
+      String(body.role || "operator"),
+      body.employee_id ?? null,
+      await hashPassword(password),
+      body.is_active === false ? 0 : 1,
+      nowIso()
+    )
+    .run();
+  await recordAudit(c.env, {
+    actor_id: admin.id,
+    actor_username: admin.username,
+    actor_name: admin.full_name,
+    action: "create",
+    entity_type: "user",
+    entity_id: result.meta.last_row_id,
+    description: `Membuat user ${String(body.username)}.`,
+  });
+  return c.json(await getById(c as never, "user", Number(result.meta.last_row_id)), 201);
+});
+
+masterRoutes.patch("/users/:id", currentUser, adminOnly, async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await c.req.json<Record<string, unknown>>();
+  const values = pick(body, ["full_name", "role", "employee_id", "is_active"]);
+  if (typeof body.password === "string" && body.password) values.hashed_password = await hashPassword(body.password);
+  if (!Object.keys(values).length) throw new HTTPException(400, { message: "Payload kosong." });
+  await c.env.DB.prepare(`UPDATE user SET ${assignmentSql(values)} WHERE id = ?`).bind(...Object.values(values), id).run();
+  return c.json(await getById(c as never, "user", id));
+});
+
+masterRoutes.get("/settings/report-identity", currentUser, async (c) => {
+  const item = await c.env.DB.prepare("SELECT value FROM appsetting WHERE key = ?").bind("report_clinic_name").first<{ value: string }>();
+  return c.json({ clinic_name: item?.value || c.env.APP_NAME || "Dental Manager" });
+});
+
+masterRoutes.patch("/settings/report-identity", currentUser, adminOnly, async (c) => {
+  const body = await c.req.json<{ clinic_name?: string }>();
+  const clinicName = (body.clinic_name || "").trim();
+  if (!clinicName) throw new HTTPException(400, { message: "Nama klinik wajib diisi." });
+  await c.env.DB.prepare(
+    `INSERT INTO appsetting (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+  )
+    .bind("report_clinic_name", clinicName, nowIso())
+    .run();
+  return c.json({ clinic_name: clinicName });
+});
+
+for (const [route, table] of [
+  ["payroll-rules", "payrollrule"],
+  ["attendance-rules", "attendancerule"],
+  ["doctor-fee-rules", "doctorfeerule"],
+] as const) {
+  masterRoutes.get(`/settings/${route}`, currentUser, adminOnly, async (c) => {
+    return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(`SELECT * FROM ${table} ORDER BY id`)));
+  });
+}
+
+masterRoutes.get("/settings/attendance-holidays", currentUser, async (c) => {
+  const start = c.req.query("start");
+  const end = c.req.query("end");
+  let sql = "SELECT * FROM attendanceholiday";
+  const params: string[] = [];
+  if (start || end) {
+    sql += " WHERE 1 = 1";
+    if (start) {
+      sql += " AND holiday_date >= ?";
+      params.push(start);
+    }
+    if (end) {
+      sql += " AND holiday_date <= ?";
+      params.push(end);
+    }
+  }
+  sql += " ORDER BY holiday_date";
+  return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(sql).bind(...params)));
+});

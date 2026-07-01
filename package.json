@@ -5,6 +5,12 @@
   "scripts": {
     "dev": "node scripts/dev.js",
     "dev:frontend": "npm --prefix frontend run dev",
-    "dev:backend": "node scripts/dev-backend.js"
+    "dev:backend": "node scripts/dev-backend.js",
+    "dev:worker": "npm --prefix backend-worker run dev",
+    "worker:typecheck": "npm --prefix backend-worker run typecheck",
+    "worker:test": "npm --prefix backend-worker run test",
+    "d1:export-sqlite": "python scripts/export-sqlite-to-d1.py",
+    "d1:migrate:local": "npm --prefix backend-worker run d1:migrate:local",
+    "d1:migrate:remote": "npm --prefix backend-worker run d1:migrate:remote"
   }
 }

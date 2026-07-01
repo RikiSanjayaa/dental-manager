@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dental-manager-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "APP_NAME": "Dental Manager",
+    "APP_ENV": "development",
+    "ACCESS_TOKEN_EXPIRE_MINUTES": "720",
+    "ADMIN_USERNAME": "admin",
+    "ADMIN_PASSWORD": "admin12345",
+    "CORS_ORIGINS": "http://localhost:5173,http://localhost:8080"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dental-manager",
+      "database_id": "replace-with-d1-database-id",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "REPORTS",
+      "bucket_name": "dental-manager-reports"
+    },
+    {
+      "binding": "UPLOADS",
+      "bucket_name": "dental-manager-uploads"
+    }
+  ],
+  "triggers": {
+    "crons": ["17 18 * * *"]
+  }
+}
