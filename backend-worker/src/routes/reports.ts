@@ -641,7 +641,9 @@ function drawPayrollSlipPage(page: PDFPage, fonts: PdfFonts, clinic: string, per
     ["PPh 21", money(row.pph21)],
   ], x, tableY, width);
   drawSlipTotalRow(page, fonts, "TOTAL GAJI DITERIMA", money(row.net_salary), x, tableY, width);
-  page.drawText(`Generated ${new Date().toISOString()}`, { x: 48, y: 48, size: 8, font: fonts.font, color: rgb(0.38, 0.44, 0.52) });
+  page.drawText("Disetujui oleh:", { x, y: 100, size: 9, font: fonts.font });
+  page.drawText("________________________", { x, y: 58, size: 9, font: fonts.font });
+  page.drawText(`Generated ${new Date().toISOString()}`, { x: 390, y: 36, size: 7, font: fonts.font, color: rgb(0.38, 0.44, 0.52) });
 }
 
 function drawSlipSection(page: PDFPage, fonts: PdfFonts, title: string, rows: Array<[string, string]>, x: number, y: number, width: number) {
