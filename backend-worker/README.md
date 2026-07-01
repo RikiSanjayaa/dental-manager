@@ -37,6 +37,43 @@ npx wrangler d1 execute dental-manager --local --file data/d1-export.sql --cwd b
 
 For production, replace `--local` with `--remote` after setting the real D1 `database_id`.
 
+## Cloudflare Deployment
+
+Login to Cloudflare first:
+
+```powershell
+npm --prefix backend-worker exec wrangler login
+```
+
+Create the remote resources once:
+
+```powershell
+npm run worker:d1:create
+npm run worker:r2:create:reports
+npm run worker:r2:create:uploads
+```
+
+Copy the generated D1 `database_id` into `backend-worker/wrangler.jsonc`, replacing `replace-with-d1-database-id`.
+
+Apply schema and import data:
+
+```powershell
+npm run d1:migrate:remote
+npm run d1:export-sqlite -- --db data/dental_manager.db --out data/d1-export.sql
+npm run d1:import:remote
+```
+
+Verify the Worker bundle, then deploy:
+
+```powershell
+npm run worker:typecheck
+npm run worker:test
+npm run worker:deploy:dry-run
+npm run worker:deploy
+```
+
+After deploy, update the frontend production API base or Cloudflare Pages routing so `/api/*` reaches the `dental-manager-api` Worker.
+
 ## Current Parity Status
 
 Implemented:
@@ -48,9 +85,12 @@ Implemented:
 - Admin dashboard aggregate endpoint.
 - Report archive list/download/delete with R2.
 - Scheduled cleanup for expired report archives.
+- Treatment history, doctor fee, attendance, and payroll workflows.
+- XLSX import previews/commits and XLSX/PDF/ZIP report exports.
+- R2 archive creation/download/delete for generated reports.
 
-Remaining:
+Remaining before cutover:
 
-- Full treatment/fee/attendance/payroll workflow endpoints.
-- XLSX/PDF/ZIP generation and import previews in Worker-compatible libraries.
-- API parity tests against FastAPI.
+- Replace the placeholder D1 `database_id` in `wrangler.jsonc`.
+- Run a full remote migration/import rehearsal on a staging Cloudflare account.
+- Finish API parity tests against FastAPI for the highest-risk workflows.
