@@ -596,13 +596,20 @@ async function makePayrollPdf(clinic: string, period: string, status: string, ro
     { header: "BANK", key: "bank", width: 74 },
     { header: "REKENING", key: "rekening", width: 98 },
   ], 30, y);
+  for (const row of rows) {
+    drawPayrollSlipPage(pdf.addPage([595, 842]), fonts, clinic, period, row);
+  }
   return pdf.save();
 }
 
 async function makePayrollSlipPdf(clinic: string, period: string, row: Record<string, unknown>): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const fonts = { font: await pdf.embedFont(StandardFonts.Helvetica), bold: await pdf.embedFont(StandardFonts.HelveticaBold) };
-  const page = pdf.addPage([595, 842]);
+  drawPayrollSlipPage(pdf.addPage([595, 842]), fonts, clinic, period, row);
+  return pdf.save();
+}
+
+function drawPayrollSlipPage(page: PDFPage, fonts: PdfFonts, clinic: string, period: string, row: Record<string, unknown>) {
   page.drawRectangle({ x: 48, y: 748, width: 499, height: 38, color: rgb(0.04, 0.18, 0.39) });
   drawCentered(page, fonts.bold, `SLIP GAJI - ${clinic}`, 297, 762, 14, rgb(1, 1, 1));
   page.drawText(`Periode ${periodLabel(period)}`, { x: 48, y: 720, size: 10, font: fonts.font });
@@ -628,7 +635,6 @@ async function makePayrollSlipPdf(clinic: string, period: string, row: Record<st
     y -= 26;
   }
   page.drawText(`Generated ${new Date().toISOString()}`, { x: 48, y: 48, size: 8, font: fonts.font, color: rgb(0.38, 0.44, 0.52) });
-  return pdf.save();
 }
 
 function drawPdfHeader(page: PDFPage, fonts: PdfFonts, title: string, clinic: string, period: string, status: string) {
