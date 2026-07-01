@@ -6,7 +6,7 @@ import { doctorFeeRoutes } from "./routes/doctor-fee";
 import { masterRoutes } from "./routes/master";
 import { dashboardRoutes } from "./routes/dashboard";
 import { payrollRoutes } from "./routes/payroll";
-import { reportsRoutes } from "./routes/reports";
+import { reportsRoutes, templateResponse } from "./routes/reports";
 import { currentUser, hashPassword, type AppVariables } from "./auth";
 import { corsOrigins, errorHandler } from "./http";
 import { deleteExpiredArchives, seedDefaults } from "./db";
@@ -31,6 +31,7 @@ app.get("/health", async (c) => {
 });
 
 app.route("/auth", authRoutes);
+app.get("/reports/templates/:template_name", (c) => templateResponse(c.req.param("template_name") ?? ""));
 app.use("*", currentUser);
 app.route("/audit-logs", auditRoutes);
 app.route("/", dashboardRoutes);
