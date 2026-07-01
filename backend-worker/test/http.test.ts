@@ -3,14 +3,12 @@ import { isAllowedOrigin } from "../src/http";
 
 describe("CORS origin matching", () => {
   const origins = [
-    "https://op.devemaclinic.com",
     "https://spv.devemaclinic.com",
     "https://*.pages.dev",
     "https://*.workers.dev",
   ];
 
   it("allows exact production origins", () => {
-    expect(isAllowedOrigin("https://op.devemaclinic.com", origins)).toBe(true);
     expect(isAllowedOrigin("https://spv.devemaclinic.com", origins)).toBe(true);
   });
 

@@ -9,10 +9,16 @@ export type UserMe = {
   employee_name?: string | null;
 };
 
+const WORKER_API_BASE = "https://dental-manager-api.imaderikiwidiastanasanjaya.workers.dev/api";
+
 function defaultApiBase() {
   if (typeof window === "undefined") return "/api";
-  if (window.location.hostname.endsWith(".pages.dev")) {
-    return "https://dental-manager-api.imaderikiwidiastanasanjaya.workers.dev/api";
+  const hostname = window.location.hostname;
+  if (
+    hostname.endsWith(".pages.dev") ||
+    (hostname.endsWith(".workers.dev") && hostname !== "dental-manager-api.imaderikiwidiastanasanjaya.workers.dev")
+  ) {
+    return WORKER_API_BASE;
   }
   return "/api";
 }
