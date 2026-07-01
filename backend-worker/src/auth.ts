@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { HTTPException } from "hono/http-exception";
 import type { Context, Next } from "hono";
-import { getUserByUsername, recordAudit } from "./db";
+import { getUserByUsername, recordAudit, seedDefaults } from "./db";
 import type { Env, User } from "./types";
 
 const encoder = new TextEncoder();
@@ -91,6 +91,7 @@ export async function adminOnly(c: Context<{ Bindings: Env; Variables: AppVariab
 }
 
 export async function login(env: Env, username: string, password: string) {
+  await seedDefaults(env, hashPassword);
   const user = await getUserByUsername(env, username);
   if (!user || !(await verifyPassword(password, user.hashed_password))) {
     throw new HTTPException(401, { message: "Username atau password salah" });
