@@ -519,7 +519,6 @@ payrollRoutes.get("/me/dashboard", async (c) => {
     recent_treatments: recentTreatments,
     recent_attendance: recentAttendance,
     recent_audit_logs: recentAuditLogs,
-  });
 });
 });
 
