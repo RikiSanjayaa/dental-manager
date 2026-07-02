@@ -454,7 +454,7 @@ payrollRoutes.get("/me/dashboard", async (c) => {
     return c.json({ detail: "Akun operator belum terhubung ke master data karyawan." }, 409);
   }
 
-  const employee = await first(
+  const employee = await first<Record<string, unknown>>(
     c.env.DB.prepare("SELECT id, name, position, attendance_id, bank_name, account_name, account_number FROM employee WHERE id = ?").bind(user.employee_id)
   );
   if (!employee) {
@@ -462,30 +462,30 @@ payrollRoutes.get("/me/dashboard", async (c) => {
   }
 
   const allSummaries = await payrollSummaries(c.env, period);
-  const summary = allSummaries.find((row) => row.employee_id === user.employee_id) || null;
+  const summary = allSummaries.find((row: Record<string, unknown>) => row.employee_id === user.employee_id) || null;
 
-  const attendanceRows = await all(
+  const attendanceRows = await all<Record<string, unknown>>(
     c.env.DB.prepare("SELECT * FROM attendancerecord WHERE period = ? AND employee_id = ?").bind(period, user.employee_id)
   );
-  const overtimeRows = attendanceRows.filter((row) => Number(row.overtime_minutes || 0) > 0);
+  const overtimeRows = attendanceRows.filter((row: Record<string, unknown>) => Number(row.overtime_minutes || 0) > 0);
 
-  const treatmentRows = await all(
+  const treatmentRows = await all<Record<string, unknown>>(
     c.env.DB.prepare("SELECT id, doctor_id, patient_name, total_bill_amount, needs_review FROM doctortransaction WHERE period = ?").bind(period)
   );
 
-  const recentTreatments = await all(
+  const recentTreatments = await all<Record<string, unknown>>(
     c.env.DB.prepare(
       "SELECT t.id, t.transaction_date, d.name AS doctor_name, t.patient_name, t.treatment_name_snapshot AS treatment_name, t.total_bill_amount, t.needs_review FROM doctortransaction t LEFT JOIN doctor d ON d.id = t.doctor_id WHERE t.period = ? ORDER BY t.transaction_date DESC, t.id DESC LIMIT 5"
     ).bind(period)
   );
 
-  const recentAuditLogs = await all(
+  const recentAuditLogs = await all<Record<string, unknown>>(
     c.env.DB.prepare(
       "SELECT id, action, entity_type, description, created_at FROM auditlog WHERE actor_id = ? ORDER BY created_at DESC LIMIT 5"
     ).bind(user.id)
   );
 
-  const recentAttendance = await all(
+  const recentAttendance = await all<Record<string, unknown>>(
     c.env.DB.prepare(
       "SELECT id, work_date, total_minutes, overtime_minutes, needs_review, protest_note, status_note FROM attendancerecord WHERE period = ? AND employee_id = ? ORDER BY work_date DESC LIMIT 5"
     ).bind(period, user.employee_id)
@@ -510,12 +510,12 @@ payrollRoutes.get("/me/dashboard", async (c) => {
         }
       : null,
     attendance_count: attendanceRows.length,
-    attendance_review_count: attendanceRows.filter((row) => row.needs_review).length,
-    protest_count: attendanceRows.filter((row) => row.protest_note).length,
+    attendance_review_count: attendanceRows.filter((row: Record<string, unknown>) => row.needs_review).length,
+    protest_count: attendanceRows.filter((row: Record<string, unknown>) => row.protest_note).length,
     overtime_count: overtimeRows.length,
-    overtime_minutes: overtimeRows.reduce((sum, row) => sum + Number(row.overtime_minutes || 0), 0),
+    overtime_minutes: overtimeRows.reduce((sum: number, row: Record<string, unknown>) => sum + Number(row.overtime_minutes || 0), 0),
     treatment_count: treatmentRows.length,
-    treatment_review_count: treatmentRows.filter((row) => row.needs_review).length,
+    treatment_review_count: treatmentRows.filter((row: Record<string, unknown>) => row.needs_review).length,
     recent_treatments: recentTreatments,
     recent_attendance: recentAttendance,
     recent_audit_logs: recentAuditLogs,
