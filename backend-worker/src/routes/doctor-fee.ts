@@ -270,7 +270,7 @@ doctorFeeRoutes.get("/doctor-transactions", async (c) => {
   return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(sql).bind(...params)));
 });
 
-doctorFeeRoutes.post("/doctor-transactions", adminOnly, async (c) => {
+doctorFeeRoutes.post("/doctor-transactions", async (c) => {
   const user = c.get("user");
   const calculated = await hydrateAndCalculate(c.env, await c.req.json<Record<string, unknown>>());
   const values = { ...pick(calculated, trxFields), created_at: nowIso() };
@@ -290,7 +290,7 @@ doctorFeeRoutes.post("/doctor-transactions", adminOnly, async (c) => {
   return c.json(await first(c.env.DB.prepare("SELECT * FROM doctortransaction WHERE id = ?").bind(result.meta.last_row_id)), 201);
 });
 
-doctorFeeRoutes.patch("/doctor-transactions/:id", adminOnly, async (c) => {
+doctorFeeRoutes.patch("/doctor-transactions/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const existing = await first<Transaction>(c.env.DB.prepare("SELECT * FROM doctortransaction WHERE id = ?").bind(id));
   if (!existing) throw new HTTPException(404, { message: "Data tidak ditemukan" });
@@ -300,17 +300,17 @@ doctorFeeRoutes.patch("/doctor-transactions/:id", adminOnly, async (c) => {
   return c.json(await first(c.env.DB.prepare("SELECT * FROM doctortransaction WHERE id = ?").bind(id)));
 });
 
-doctorFeeRoutes.delete("/doctor-transactions/:id", adminOnly, async (c) => {
+doctorFeeRoutes.delete("/doctor-transactions/:id", async (c) => {
   await c.env.DB.prepare("DELETE FROM doctortransaction WHERE id = ?").bind(Number(c.req.param("id"))).run();
   return c.json({ status: "ok" });
 });
 
-doctorFeeRoutes.post("/doctor-transactions/import/preview", adminOnly, async (c) => {
+doctorFeeRoutes.post("/doctor-transactions/import/preview", async (c) => {
   const user = c.get("user");
   const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
   return c.json(await storeTransactionPreview(c.env, filename, await buildTransactionPreview(c.env, rows), user.id));
 });
-doctorFeeRoutes.post("/doctor-transactions/import/:id/commit", adminOnly, async (c) => {
+doctorFeeRoutes.post("/doctor-transactions/import/:id/commit", async (c) => {
   const user = c.get("user");
   const importId = Number(c.req.param("id"));
   const stored = await first<{ preview_json: string }>(
@@ -342,7 +342,7 @@ doctorFeeRoutes.post("/doctor-transactions/import/:id/commit", adminOnly, async 
     .run();
   return c.json({ created, updated: 0, invalid_rows: preview.invalid_rows });
 });
-doctorFeeRoutes.post("/doctor-transactions/import", adminOnly, async (c) => {
+doctorFeeRoutes.post("/doctor-transactions/import", async (c) => {
   const user = c.get("user");
   const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
   const preview = await storeTransactionPreview(c.env, filename, await buildTransactionPreview(c.env, rows), user.id);

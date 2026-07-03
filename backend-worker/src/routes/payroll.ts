@@ -5,7 +5,9 @@ import { calculateAttendanceRecord, calculatePayrollRecord } from "../calculatio
 import { all, first } from "../db";
 import { nowIso } from "../http";
 import type { Env } from "../types";
-import { boolValue, dateTextValue, textValue, timeTextValue, workbookRowsFromRequest } from "../xlsx";
+
+import { boolValue, dateTextValue, textValue, timeTextValue, workbookRowsFromRequest, makeWorkbook, xlsxResponse } from "../xlsx";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 export const payrollRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -528,8 +530,167 @@ payrollRoutes.get("/me/payroll/:period", async (c) => {
   return c.json(await first(c.env.DB.prepare("SELECT * FROM payrollrecord WHERE period = ? AND employee_id = ?").bind(c.req.param("period"), user.employee_id)));
 });
 
-payrollRoutes.get("/me/payroll/:period/export", async () => {
-  throw new HTTPException(501, { message: "Export payroll pribadi Worker belum selesai." });
+payrollRoutes.get("/me/payroll/:period/export", async (c) => {
+  const user = c.get("user");
+  if (!user.employee_id) {
+    throw new HTTPException(409, { message: "Akun operator belum terhubung ke master data karyawan." });
+  }
+  const period = c.req.param("period") ?? "";
+  const format = c.req.query("format") || "pdf";
+
+  const employee = await first<Record<string, unknown>>(
+    c.env.DB.prepare("SELECT * FROM employee WHERE id = ?").bind(user.employee_id)
+  );
+  if (!employee) {
+    throw new HTTPException(404, { message: "Data karyawan tidak ditemukan." });
+  }
+
+  const payrollRecord = await first<Record<string, unknown>>(
+    c.env.DB.prepare("SELECT * FROM payrollrecord WHERE period = ? AND employee_id = ?").bind(period, user.employee_id)
+  );
+  if (!payrollRecord) {
+    throw new HTTPException(404, { message: "Payroll untuk periode ini belum tersedia." });
+  }
+
+  const slug = String(employee.name || "operator").replace(/[^a-zA-Z0-9]/g, "-");
+
+  // XLSX format
+  if (format === "xlsx") {
+    const rows: Record<string, unknown>[] = [
+      { Keterangan: "Nama Karyawan", Nilai: employee.name },
+      { Keterangan: "Jabatan", Nilai: employee.position || "-" },
+      { Keterangan: "Periode", Nilai: period },
+      { Keterangan: "Gaji Pokok", Nilai: Number(payrollRecord.base_salary || 0) },
+      { Keterangan: "Lembur", Nilai: Number(payrollRecord.overtime_total || 0) },
+      { Keterangan: "Bonus", Nilai: Number(payrollRecord.bonus || 0) },
+      { Keterangan: "Tunjangan Jabatan", Nilai: Number(payrollRecord.position_allowance || 0) },
+      { Keterangan: "Potongan BPJS", Nilai: Number(payrollRecord.bpjs_deduction || 0) },
+      { Keterangan: "Potongan Lain", Nilai: Number(payrollRecord.other_deduction || 0) },
+      { Keterangan: "PPh 21", Nilai: Number(payrollRecord.pph21 || 0) },
+      { Keterangan: "Total Gaji Bersih", Nilai: Number(payrollRecord.net_salary || 0) },
+      { Keterangan: "Bank", Nilai: employee.bank_name || "-" },
+      { Keterangan: "No. Rekening", Nilai: employee.account_number || "-" },
+      { Keterangan: "Status", Nilai: payrollRecord.status || "draft" },
+    ];
+    return xlsxResponse(makeWorkbook([{ name: "Slip Gaji", rows }]), `payroll-saya-${period}-${slug}.xlsx`);
+  }
+
+  const pdfDoc = await PDFDocument.create();
+  const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const page = pdfDoc.addPage([595, 842]);
+  const pageWidth = page.getWidth();
+  const margin = 48;
+
+  function drawText(text: string, x: number, y: number, size = 10, font = helvetica, color = rgb(0, 0, 0)) {
+    page.drawText(text, { x, y, size, font, color });
+  }
+
+  function money(value: unknown): string {
+    const num = Number(value || 0);
+    return "Rp " + num.toLocaleString("id-ID");
+  }
+
+  // Header
+  const clinicName = "Dental Manager";
+  drawText(clinicName, margin, 790, 14, helveticaBold);
+  drawText("SLIP GAJI OPERATOR", margin, 768, 12, helveticaBold);
+  drawText(`Periode ${period}`, pageWidth - margin - 100, 772, 10, helvetica);
+
+  page.drawLine({
+    start: { x: margin, y: 740 },
+    end: { x: pageWidth - margin, y: 740 },
+    thickness: 0.5,
+    color: rgb(0.6, 0.6, 0.6),
+  });
+
+  // Employee info
+  const infoY = 718;
+  const info: Array<[string, string]> = [
+    ["Nama", String(employee.name || "")],
+    ["Jabatan", String(employee.position || "-")],
+    ["Bank", String(employee.bank_name || "-")],
+    ["No. Rekening", String(employee.account_number || "-")],
+    ["Status", String(payrollRecord.status || "draft")],
+  ];
+  let iy = infoY;
+  for (const [label, value] of info) {
+    drawText(label, margin, iy, 9, helvetica, rgb(0.4, 0.4, 0.4));
+    drawText(value, margin + 100, iy, 9, helveticaBold);
+    iy -= 18;
+  }
+
+  // Payroll breakdown
+  const sectionY = iy - 20;
+  const tableLeft = margin;
+  const tableRight = pageWidth - margin;
+  const tableWidth = tableRight - tableLeft;
+
+  function drawSection(title: string, rows: Array<[string, unknown]>, startY: number): number {
+    // Section header
+    page.drawRectangle({
+      x: tableLeft, y: startY, width: tableWidth, height: 22,
+      color: rgb(0.84, 0.91, 0.96),
+    });
+    drawText(title, tableLeft + 8, startY + 6, 10, helveticaBold);
+    let currentY = startY - 24;
+    for (const [label, value] of rows) {
+      page.drawRectangle({
+        x: tableLeft, y: currentY, width: tableWidth, height: 22,
+        borderColor: rgb(0.8, 0.8, 0.8), borderWidth: 0.5,
+      });
+      drawText(label, tableLeft + 8, currentY + 6, 9, helvetica);
+      const valueStr = money(value);
+      const valueWidth = helvetica.widthOfTextAtSize(valueStr, 9);
+      drawText(valueStr, tableRight - valueWidth - 8, currentY + 6, 9, helvetica);
+      currentY -= 24;
+    }
+    return currentY;
+  }
+
+  const income: Array<[string, unknown]> = [
+    ["Gaji Pokok", payrollRecord.base_salary],
+    ["Bonus", payrollRecord.bonus],
+    ["Lembur", payrollRecord.overtime_total],
+  ];
+  let y = drawSection("PENDAPATAN", income, sectionY);
+
+  const deductions: Array<[string, unknown]> = [
+    ["Potongan BPJS", payrollRecord.bpjs_deduction],
+    ["Potongan Lain", payrollRecord.other_deduction],
+    ["PPh 21", payrollRecord.pph21],
+  ];
+  y = drawSection("POTONGAN", deductions, y);
+
+  // Net salary total row
+  page.drawRectangle({
+    x: tableLeft, y: y, width: tableWidth, height: 26,
+    color: rgb(0.95, 0.68, 0.47),
+  });
+  drawText("TOTAL GAJI DITERIMA", tableLeft + 8, y + 7, 10, helveticaBold);
+  const netStr = money(payrollRecord.net_salary);
+  const netWidth = helveticaBold.widthOfTextAtSize(netStr, 10);
+  drawText(netStr, tableRight - netWidth - 8, y + 7, 10, helveticaBold);
+
+  // Footer
+  page.drawLine({
+    start: { x: margin, y: 60 },
+    end: { x: pageWidth - margin, y: 60 },
+    thickness: 0.5,
+    color: rgb(0.8, 0.8, 0.8),
+  });
+  drawText(`Dicetak ${new Date().toISOString().slice(0, 10)}`, margin, 40, 7, helvetica, rgb(0.5, 0.5, 0.5));
+  drawText("Slip gaji ini digenerate otomatis oleh sistem.", margin, 28, 7, helvetica, rgb(0.5, 0.5, 0.5));
+
+  const pdfBytes = await pdfDoc.save();
+  const filename = `slip-gaji-${period}-${slug}.pdf`;
+
+  return new Response(pdfBytes, {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    },
+  });
 });
 
 payrollRoutes.get("/payroll-periods/:period/overtime", async (c) => {
