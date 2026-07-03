@@ -17,8 +17,8 @@ import {
   ReceiptText,
   WalletCards,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { DataTable } from "../components/DataTable";
 import { api, rupiah } from "../lib/api";
@@ -112,11 +112,18 @@ function formatDateTime(value: string) {
 export function OperatorDashboardPage() {
   const user = useCurrentUser();
   const navigate = useNavigate();
-  const [period, setPeriod] = useState(currentPeriod());
+  const [params, setParams] = useSearchParams();
+  const [period, setPeriod] = useState(params.get("period") || "");
   const { data, isError, error } = useQuery({
-    queryKey: ["operator-dashboard", period],
-    queryFn: () => api<OperatorDashboard>(`/me/dashboard?period=${period}`),
+    queryKey: ["operator-dashboard", period || "latest"],
+    queryFn: () => api<OperatorDashboard>(period ? `/me/dashboard?period=${period}` : "/me/dashboard"),
   });
+
+  useEffect(() => {
+    if (!period && data?.period) setPeriod(data.period);
+  }, [data?.period, period]);
+
+  const activePeriod = period || data?.period || currentPeriod();
 
   const readiness = (data?.attendance_review_count ?? 0) + (data?.treatment_review_count ?? 0) > 0 ? "needs_review" : "ready";
   const workflow = useMemo(
@@ -126,7 +133,7 @@ export function OperatorDashboardPage() {
         description: `${data?.treatment_count ?? 0} transaksi bulan ini`,
         status: (data?.treatment_review_count ?? 0) ? "needs_review" : "ready",
         meta: `${data?.treatment_review_count ?? 0} review`,
-        path: `/treatment-history?period=${period}`,
+        path: `/treatment-history?period=${activePeriod}`,
         icon: ClipboardCheck,
       },
       {
@@ -134,7 +141,7 @@ export function OperatorDashboardPage() {
         description: `${data?.attendance_count ?? 0} baris absensi`,
         status: (data?.attendance_review_count ?? 0) ? "needs_review" : "ready",
         meta: `${data?.protest_count ?? 0} protes`,
-        path: `/attendance?period=${period}`,
+        path: `/attendance?period=${activePeriod}`,
         icon: Clock3,
       },
       {
@@ -142,7 +149,7 @@ export function OperatorDashboardPage() {
         description: rupiah.format(data?.payroll?.net_salary ?? 0),
         status: data?.payroll?.needs_review ? "needs_review" : data?.payroll?.status ?? "not_calculated",
         meta: `${data?.overtime_minutes ?? 0} menit lembur`,
-        path: `/my-payroll?period=${period}`,
+        path: `/my-payroll?period=${activePeriod}`,
         icon: ReceiptText,
       },
       {
@@ -154,8 +161,13 @@ export function OperatorDashboardPage() {
         icon: History,
       },
     ],
-    [data, period],
+    [activePeriod, data],
   );
+
+  function changePeriod(value: string) {
+    setPeriod(value);
+    setParams({ period: value });
+  }
 
   return (
     <>
@@ -169,7 +181,7 @@ export function OperatorDashboardPage() {
         </div>
         <label className="flex items-center gap-2 text-sm font-medium text-kumo-default">
           Periode
-          <Input className="w-40" aria-label="Periode dashboard operator" type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
+          <Input className="w-40" aria-label="Periode dashboard operator" type="month" value={activePeriod} onChange={(event) => changePeriod(event.target.value)} />
         </label>
       </div>
 
@@ -215,7 +227,7 @@ export function OperatorDashboardPage() {
                 <Text as="h2" variant="heading3">Riwayat Perawatan Terbaru</Text>
                 <Text variant="secondary" size="sm">Cek transaksi terbaru agar input tidak dobel.</Text>
               </div>
-              <Button variant="ghost" size="sm" icon={<ClipboardCheck size={16} />} onClick={() => navigate(`/treatment-history?period=${period}`)}>
+              <Button variant="ghost" size="sm" icon={<ClipboardCheck size={16} />} onClick={() => navigate(`/treatment-history?period=${activePeriod}`)}>
                 Buka Riwayat
               </Button>
             </div>

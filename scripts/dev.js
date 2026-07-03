@@ -1,17 +1,20 @@
 const { spawn } = require("node:child_process");
+const path = require("node:path");
+
+const localWranglerConfig = path.join(process.cwd(), ".wrangler-config");
 
 const commands = [
   {
-    name: "backend",
+    name: "worker",
     command: process.platform === "win32" ? "npm.cmd" : "npm",
-    args: ["run", "dev:backend"],
-    env: { BACKEND_HOST: "127.0.0.1", BACKEND_PORT: "8010" },
+    args: ["run", "dev:worker"],
+    env: { XDG_CONFIG_HOME: localWranglerConfig },
   },
   {
     name: "frontend",
     command: process.platform === "win32" ? "npm.cmd" : "npm",
     args: ["run", "dev:frontend"],
-    env: { VITE_DEV_API_TARGET: "http://127.0.0.1:8010" },
+    env: { VITE_DEV_API_TARGET: "http://127.0.0.1:8787" },
   },
 ];
 

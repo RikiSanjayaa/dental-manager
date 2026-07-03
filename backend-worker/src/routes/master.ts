@@ -272,10 +272,23 @@ for (const [path, config] of Object.entries(tables)) {
   });
 
   masterRoutes.delete(`/${path}/:id`, currentUser, adminOnly, async (c) => {
+    const user = c.get("user");
     const id = Number(c.req.param("id"));
+    const before = await getById(c as never, config.table, id);
+    if (!before) throw new HTTPException(404, { message: "Data tidak ditemukan" });
     await c.env.DB.prepare(`UPDATE ${config.table} SET is_active = 0 WHERE id = ?`).bind(id).run();
     const row = await getById(c as never, config.table, id);
     if (!row) throw new HTTPException(404, { message: "Data tidak ditemukan" });
+    await recordAudit(c.env, {
+      actor_id: user.id,
+      actor_username: user.username,
+      actor_name: user.full_name,
+      action: "delete",
+      entity_type: config.table,
+      entity_id: id,
+      description: `Menonaktifkan ${config.table}.`,
+      metadata: { target: path, name: before.name ?? before.username ?? null },
+    });
     return c.json(row);
   });
 }
@@ -299,10 +312,13 @@ masterRoutes.post("/:target/:id/deactivate", currentUser, adminOnly, async (c) =
 });
 
 masterRoutes.delete("/:target/:id/permanent", currentUser, adminOnly, async (c) => {
+  const user = c.get("user");
   const target = c.req.param("target") ?? "";
   const config = tables[target];
   if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
   const id = Number(c.req.param("id"));
+  const before = await getById(c as never, config.table, id);
+  if (!before) throw new HTTPException(404, { message: "Data tidak ditemukan" });
   const references = await masterReferenceCount(c.env, target, id);
   if (references > 0) {
     throw new HTTPException(409, {
@@ -310,6 +326,16 @@ masterRoutes.delete("/:target/:id/permanent", currentUser, adminOnly, async (c) 
     });
   }
   await c.env.DB.prepare(`DELETE FROM ${config.table} WHERE id = ?`).bind(id).run();
+  await recordAudit(c.env, {
+    actor_id: user.id,
+    actor_username: user.username,
+    actor_name: user.full_name,
+    action: "delete",
+    entity_type: config.table,
+    entity_id: id,
+    description: `Menghapus permanen ${config.table}.`,
+    metadata: { target, name: before.name ?? null },
+  });
   return c.json({ target, id, deleted: true });
 });
 
@@ -451,7 +477,21 @@ masterRoutes.post("/settings/attendance-holidays", currentUser, adminOnly, async
 });
 
 masterRoutes.delete("/settings/attendance-holidays/:id", currentUser, adminOnly, async (c) => {
-  await c.env.DB.prepare("DELETE FROM attendanceholiday WHERE id = ?").bind(Number(c.req.param("id"))).run();
+  const user = c.get("user");
+  const id = Number(c.req.param("id"));
+  const before = await getById(c as never, "attendanceholiday", id);
+  if (!before) throw new HTTPException(404, { message: "Data tidak ditemukan" });
+  await c.env.DB.prepare("DELETE FROM attendanceholiday WHERE id = ?").bind(id).run();
+  await recordAudit(c.env, {
+    actor_id: user.id,
+    actor_username: user.username,
+    actor_name: user.full_name,
+    action: "delete",
+    entity_type: "attendance_holiday",
+    entity_id: id,
+    description: "Menghapus hari libur absensi.",
+    metadata: { holiday_date: before.holiday_date, name: before.name ?? null },
+  });
   return c.json({ status: "ok" });
 });
 

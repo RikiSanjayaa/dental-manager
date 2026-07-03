@@ -301,7 +301,27 @@ doctorFeeRoutes.patch("/doctor-transactions/:id", async (c) => {
 });
 
 doctorFeeRoutes.delete("/doctor-transactions/:id", async (c) => {
-  await c.env.DB.prepare("DELETE FROM doctortransaction WHERE id = ?").bind(Number(c.req.param("id"))).run();
+  const user = c.get("user");
+  const id = Number(c.req.param("id"));
+  const existing = await first<Transaction>(c.env.DB.prepare("SELECT * FROM doctortransaction WHERE id = ?").bind(id));
+  if (!existing) throw new HTTPException(404, { message: "Data tidak ditemukan" });
+  await c.env.DB.prepare("DELETE FROM doctortransaction WHERE id = ?").bind(id).run();
+  await recordAudit(c.env, {
+    actor_id: user.id,
+    actor_username: user.username,
+    actor_name: user.full_name,
+    action: "delete",
+    entity_type: "doctor_transaction",
+    entity_id: id,
+    description: "Menghapus transaksi perawatan.",
+    metadata: {
+      period: existing.period,
+      transaction_date: existing.transaction_date,
+      doctor_id: existing.doctor_id,
+      patient_name: existing.patient_name,
+      treatment_name: existing.treatment_name_snapshot,
+    },
+  });
   return c.json({ status: "ok" });
 });
 

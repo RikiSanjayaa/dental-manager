@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { adminOnly, type AppVariables } from "../auth";
 import { calculateAttendanceRecord, calculatePayrollRecord } from "../calculations";
-import { all, first } from "../db";
+import { all, first, recordAudit } from "../db";
 import { nowIso } from "../http";
 import type { Env } from "../types";
 
@@ -39,6 +39,23 @@ type EmployeeRow = {
   account_name: string | null;
   account_number: string | null;
 };
+
+function isAdmin(user: { role: string }) {
+  return user.role === "admin";
+}
+
+async function latestOperatorPeriod(env: Env, employeeId: number): Promise<string | null> {
+  const row = await first<{ period: string }>(
+    env.DB.prepare(
+      `SELECT period FROM (
+         SELECT period FROM attendancerecord WHERE employee_id = ?
+         UNION
+         SELECT period FROM payrollrecord WHERE employee_id = ?
+       ) ORDER BY period DESC LIMIT 1`
+    ).bind(employeeId, employeeId)
+  );
+  return row?.period ?? null;
+}
 
 function pick(body: Record<string, unknown>, fields: string[]) {
   return Object.fromEntries(fields.filter((field) => field in body).map((field) => [field, body[field]]));
@@ -271,12 +288,17 @@ payrollRoutes.post("/attendance/import", adminOnly, async (c) => {
 });
 
 payrollRoutes.get("/attendance-records", async (c) => {
+  const user = c.get("user");
   const period = c.req.query("period");
   let sql = "SELECT * FROM attendancerecord";
   const params: unknown[] = [];
   if (period) {
     sql += " WHERE period = ?";
     params.push(period);
+  }
+  if (!isAdmin(user)) {
+    sql += params.length ? " AND employee_id = ?" : " WHERE employee_id = ?";
+    params.push(user.employee_id ?? -1);
   }
   sql += " ORDER BY work_date DESC, id DESC";
   return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(sql).bind(...params)));
@@ -324,20 +346,57 @@ payrollRoutes.patch("/attendance-records/:id", adminOnly, async (c) => {
 });
 
 payrollRoutes.delete("/attendance-records/:id", adminOnly, async (c) => {
-  await c.env.DB.prepare("DELETE FROM attendancerecord WHERE id = ?").bind(Number(c.req.param("id"))).run();
+  const user = c.get("user");
+  const id = Number(c.req.param("id"));
+  const existing = await first<Record<string, unknown>>(c.env.DB.prepare("SELECT * FROM attendancerecord WHERE id = ?").bind(id));
+  if (!existing) throw new HTTPException(404, { message: "Data tidak ditemukan" });
+  await c.env.DB.prepare("DELETE FROM attendancerecord WHERE id = ?").bind(id).run();
+  await recordAudit(c.env, {
+    actor_id: user.id,
+    actor_username: user.username,
+    actor_name: user.full_name,
+    action: "delete",
+    entity_type: "attendance_record",
+    entity_id: id,
+    description: "Menghapus data absensi.",
+    metadata: {
+      period: existing.period,
+      employee_id: existing.employee_id,
+      employee_name: existing.employee_name_snapshot,
+      work_date: existing.work_date,
+    },
+  });
   return c.json({ status: "ok" });
 });
 
 payrollRoutes.post("/attendance-records/:id/protest", async (c) => {
   const user = c.get("user");
   const id = Number(c.req.param("id"));
-  const body = await c.req.json<{ protest_note?: string }>();
+  const existing = await first<Record<string, unknown>>(c.env.DB.prepare("SELECT * FROM attendancerecord WHERE id = ?").bind(id));
+  if (!existing) throw new HTTPException(404, { message: "Data tidak ditemukan" });
+  if (!isAdmin(user) && (!user.employee_id || Number(existing.employee_id) !== Number(user.employee_id))) {
+    throw new HTTPException(403, { message: "Operator hanya bisa protes absensi miliknya." });
+  }
+  const body = await c.req.json<{ protest_note?: string; reason?: string }>();
+  const note = (body.protest_note ?? body.reason ?? "").trim();
+  if (note.length < 5) throw new HTTPException(400, { message: "Alasan protes minimal 5 karakter." });
   await c.env.DB.prepare(
     "UPDATE attendancerecord SET protest_note = ?, protest_by_user_id = ?, protest_by_name = ?, protested_at = ?, needs_review = 1 WHERE id = ?"
   )
-    .bind(body.protest_note || "", user.id, user.full_name, nowIso(), id)
+    .bind(note, user.id, user.full_name, nowIso(), id)
     .run();
-  return c.json(await first(c.env.DB.prepare("SELECT * FROM attendancerecord WHERE id = ?").bind(id)));
+  const updated = await first<Record<string, unknown>>(c.env.DB.prepare("SELECT * FROM attendancerecord WHERE id = ?").bind(id));
+  await recordAudit(c.env, {
+    actor_id: user.id,
+    actor_username: user.username,
+    actor_name: user.full_name,
+    action: "protest",
+    entity_type: "attendance_record",
+    entity_id: id,
+    description: "Mengirim protes absensi.",
+    metadata: { period: updated?.period, employee_id: updated?.employee_id, work_date: updated?.work_date },
+  });
+  return c.json(updated);
 });
 
 payrollRoutes.post("/payroll-periods/:period/calculate", adminOnly, async (c) => {
@@ -450,11 +509,11 @@ payrollRoutes.get("/payroll-periods/:period/overview", async (c) => {
 
 payrollRoutes.get("/me/dashboard", async (c) => {
   const user = c.get("user");
-  const period = c.req.query("period") || new Date().toISOString().slice(0, 7);
 
   if (!user.employee_id) {
     return c.json({ detail: "Akun operator belum terhubung ke master data karyawan." }, 409);
   }
+  const period = c.req.query("period") || (await latestOperatorPeriod(c.env, user.employee_id)) || new Date().toISOString().slice(0, 7);
 
   const employee = await first<Record<string, unknown>>(
     c.env.DB.prepare("SELECT id, name, position, attendance_id, bank_name, account_name, account_number FROM employee WHERE id = ?").bind(user.employee_id)
@@ -526,8 +585,34 @@ payrollRoutes.get("/me/dashboard", async (c) => {
 
 payrollRoutes.get("/me/payroll/:period", async (c) => {
   const user = c.get("user");
-  if (!user.employee_id) return c.json(null);
-  return c.json(await first(c.env.DB.prepare("SELECT * FROM payrollrecord WHERE period = ? AND employee_id = ?").bind(c.req.param("period"), user.employee_id)));
+  if (!user.employee_id) {
+    return c.json({ detail: "Akun operator belum terhubung ke master data karyawan." }, 409);
+  }
+  const period = c.req.param("period") ?? "";
+  const employee = await first<Record<string, unknown>>(
+    c.env.DB.prepare("SELECT id, name, position, attendance_id, bank_name, account_name, account_number FROM employee WHERE id = ?").bind(user.employee_id)
+  );
+  if (!employee) {
+    return c.json({ detail: "Master data karyawan operator tidak ditemukan." }, 404);
+  }
+  const payroll = await first<Record<string, unknown>>(
+    c.env.DB.prepare("SELECT * FROM payrollrecord WHERE period = ? AND employee_id = ?").bind(period, user.employee_id)
+  );
+  const attendanceRows = await all<Record<string, unknown>>(
+    c.env.DB.prepare(
+      "SELECT id, work_date, timezone1_in, timezone1_out, timezone2_in, timezone2_out, overtime_minutes, needs_review, status_note, protest_note FROM attendancerecord WHERE period = ? AND employee_id = ? ORDER BY work_date DESC, id DESC"
+    ).bind(period, user.employee_id)
+  );
+  const overtimeRows = attendanceRows.filter((row) => Number(row.overtime_minutes || 0) > 0);
+  return c.json({
+    period,
+    employee,
+    payroll,
+    attendance_count: attendanceRows.length,
+    attendance_review_count: attendanceRows.filter((row) => row.needs_review).length,
+    overtime_minutes: overtimeRows.reduce((sum, row) => sum + Number(row.overtime_minutes || 0), 0),
+    overtime_rows: overtimeRows,
+  });
 });
 
 payrollRoutes.get("/me/payroll/:period/export", async (c) => {

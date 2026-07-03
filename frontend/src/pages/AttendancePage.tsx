@@ -12,6 +12,7 @@ import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, FileDown, FileUp, MessageSquareWarning, MoreHorizontal, Pencil, Plus, Search, Trash2, XCircle } from "lucide-react";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { AttendanceEditorDialog } from "../components/attendance/AttendanceEditorDialog";
 import { AttendanceImportPreviewDialog } from "../components/attendance/AttendanceImportPreviewDialog";
@@ -87,10 +88,11 @@ type AttendanceHoliday = { id: number; holiday_date: string; name?: string | nul
 export function AttendancePage() {
   const user = useCurrentUser();
   const canManageAttendance = isAdministrator(user);
+  const [params, setParams] = useSearchParams();
   const queryClient = useQueryClient();
   const toasts = useKumoToastManager();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
+  const [period, setPeriod] = useState(params.get("period") || new Date().toISOString().slice(0, 7));
   const [search, setSearch] = useState("");
   const [employeeFilter, setEmployeeFilter] = useState("all");
   const [reviewFilter, setReviewFilter] = useState("all");
@@ -133,6 +135,11 @@ export function AttendancePage() {
 
   function isHolidayDate(value: string) {
     return holidayByDate.get(value) ?? isSunday(value);
+  }
+
+  function changePeriod(value: string) {
+    setPeriod(value);
+    setParams({ period: value });
   }
 
   useEffect(() => {
@@ -394,7 +401,7 @@ export function AttendancePage() {
           <p className="mt-1 text-sm text-gray-600">Data fingerprint karyawan sebagai dasar payroll bulanan</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Input className="w-40" aria-label="Periode absensi" type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
+          <Input className="w-40" aria-label="Periode absensi" type="month" value={period} onChange={(event) => changePeriod(event.target.value)} />
           {canManageAttendance ? (
             <>
               <LinkButton variant="secondary" href="/api/reports/templates/attendance.xlsx" download="attendance-template.xlsx" icon={<FileDown size={18} />}>
