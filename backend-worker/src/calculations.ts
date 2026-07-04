@@ -60,6 +60,7 @@ export type PayrollRecordShape = {
   auto_double_shift_count?: number;
   sunday_count_override?: number | null;
   double_shift_count_override?: number | null;
+  overtime_minutes_override?: number | null;
   sunday_count?: number;
   double_shift_count?: number;
   double_shift_fee?: number;
@@ -220,7 +221,7 @@ export function calculatePayrollRecord<T extends PayrollRecordShape>(
     (row) => isTruthy(row.is_holiday) && Boolean(row.timezone1_in || row.timezone1_out || row.timezone2_in || row.timezone2_out)
   ).length;
   const autoDouble = attendanceRows.filter((row) => row.is_double_shift).length;
-  record.overtime_minutes = autoOvertime;
+  record.overtime_minutes = record.overtime_minutes_override ?? autoOvertime;
   record.auto_sunday_count = autoSunday;
   record.auto_double_shift_count = autoDouble;
   record.sunday_count = record.sunday_count_override ?? autoSunday;

@@ -118,6 +118,7 @@ type OvertimeRecord = {
 
 type AdjustmentValues = {
   double_shift_count: string;
+  overtime_minutes: string;
   sunday_count: string;
   bonus: string;
   position_allowance: string;
@@ -179,6 +180,7 @@ function attendanceType(row: OvertimeRecord) {
 function valuesFromSummary(row: PayrollSummary): AdjustmentValues {
   return {
     double_shift_count: String(row.double_shift_count ?? 0),
+    overtime_minutes: String(row.overtime_minutes ?? 0),
     sunday_count: String(row.sunday_count ?? 0),
     bonus: String(row.bonus ?? 0),
     position_allowance: String(row.position_allowance ?? 0),
@@ -197,8 +199,9 @@ function valuesFromSummary(row: PayrollSummary): AdjustmentValues {
 
 function adjustmentPayload(values: AdjustmentValues) {
   return {
-    double_shift_count: Number(values.double_shift_count || 0),
-    sunday_count: Number(values.sunday_count || 0),
+    double_shift_count_override: Number(values.double_shift_count || 0),
+    overtime_minutes_override: Number(values.overtime_minutes || 0),
+    sunday_count_override: Number(values.sunday_count || 0),
     bonus: Number(values.bonus || 0),
     position_allowance: Number(values.position_allowance || 0),
     other_deduction: Number(values.other_deduction || 0),
@@ -1095,6 +1098,24 @@ export function PayrollPage() {
                         values: {
                           ...current.values,
                           double_shift_count: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Overtime (menit)"
+                  labelTooltip={`Auto dari absensi: ${editor.row?.overtime_minutes ?? 0}. Override manual nilai lembur.`}
+                >
+                  <Input
+                    type="number"
+                    value={editor.values.overtime_minutes}
+                    onChange={(event) =>
+                      setEditor((current) => ({
+                        ...current,
+                        values: {
+                          ...current.values,
+                          overtime_minutes: event.target.value,
                         },
                       }))
                     }

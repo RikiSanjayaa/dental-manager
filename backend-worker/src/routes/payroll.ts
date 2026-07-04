@@ -77,6 +77,7 @@ async function payrollSummaries(env: Env, period: string) {
               COALESCE(p.auto_sunday_count, 0) AS auto_sunday_count,
               p.double_shift_count_override,
               p.sunday_count_override,
+              p.overtime_minutes_override,
               COALESCE(p.double_shift_count, 0) AS double_shift_count,
               COALESCE(p.sunday_count, 0) AS sunday_count,
               COALESCE(p.izin_count, 0) AS izin_count,
@@ -795,6 +796,7 @@ payrollRoutes.get("/payroll-periods/:period/slips/:employee_id", async (c) => {
 });
 
 payrollRoutes.patch("/payroll-records/:id", adminOnly, async (c) => {
+  const user = c.get("user");
   const id = Number(c.req.param("id"));
   const values = pick(await c.req.json<Record<string, unknown>>(), [
     "bonus",
@@ -802,6 +804,12 @@ payrollRoutes.patch("/payroll-records/:id", adminOnly, async (c) => {
     "other_deduction",
     "double_shift_count_override",
     "sunday_count_override",
+    "overtime_minutes_override",
+    "izin_count",
+    "sakit_count",
+    "cuti_count",
+    "alpha_count",
+    "payment_method",
     "bank_name",
     "account_name",
     "account_number",
@@ -811,6 +819,16 @@ payrollRoutes.patch("/payroll-records/:id", adminOnly, async (c) => {
   await c.env.DB.prepare(`UPDATE payrollrecord SET ${assignmentSql(values)} WHERE id = ?`).bind(...Object.values(values), id).run();
   const row = await first<{ period: string; employee_id: number }>(c.env.DB.prepare("SELECT period, employee_id FROM payrollrecord WHERE id = ?").bind(id));
   if (!row) throw new HTTPException(404, { message: "Data tidak ditemukan" });
+  await recordAudit(c.env, {
+    actor_id: user.id,
+    actor_username: user.username,
+    actor_name: user.full_name,
+    action: "update",
+    entity_type: "payroll_record",
+    entity_id: id,
+    description: "Mengupdate adjustment payroll.",
+    metadata: { period: row.period, employee_id: row.employee_id, changes: values },
+  });
   return c.json((await payrollSummaries(c.env, row.period)).find((item) => item.employee_id === row.employee_id) ?? null);
 });
 
