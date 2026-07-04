@@ -15,7 +15,7 @@ import { Tooltip } from "@cloudflare/kumo/components/tooltip";
 import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart } from "echarts/charts";
-import { GridComponent, TooltipComponent } from "echarts/components";
+import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import {
@@ -39,7 +39,7 @@ import { DataTable } from "../components/DataTable";
 import { api, downloadFile, rupiah } from "../lib/api";
 import { isDevelopmentEnvironment } from "../lib/environment";
 
-echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([BarChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
 type PeriodStatus = "empty" | "not_calculated" | "draft" | "locked";
 

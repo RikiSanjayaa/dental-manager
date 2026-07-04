@@ -9,6 +9,7 @@ import { Switch } from "@cloudflare/kumo/components/switch";
 
 import { DatePickerPopover } from "../DatePickerPopover";
 import { rupiah } from "../../lib/api";
+import { numberField } from "../../lib/number-fields";
 import type { Doctor, EditorSession, Treatment } from "./types";
 
 type TreatmentOption = {
@@ -241,8 +242,7 @@ export function TransactionEditorDialog({
               >
                 <Input
                   type="number"
-                  min="0"
-                  step="0.01"
+                  {...numberField.positiveCount}
                   value={values.qty}
                   onChange={(event) => onFieldChange("qty", event.target.value)}
                 />
@@ -253,6 +253,7 @@ export function TransactionEditorDialog({
               >
                 <Input
                   type="number"
+                  {...numberField.money}
                   value={values.discount_amount}
                   onChange={(event) => onFieldChange("discount_amount", event.target.value)}
                 />
@@ -263,6 +264,7 @@ export function TransactionEditorDialog({
               >
                 <Input
                   type="number"
+                  {...numberField.money}
                   value={values.special_fee_amount}
                   onChange={(event) => onFieldChange("special_fee_amount", event.target.value)}
                 />
@@ -274,6 +276,7 @@ export function TransactionEditorDialog({
               >
                 <Input
                   type="number"
+                  {...numberField.money}
                   placeholder={selectedTreatment ? rupiah.format(selectedTreatment.bhp_cost) : "Ikuti master"}
                   value={values.bhp_override}
                   onChange={(event) => onFieldChange("bhp_override", event.target.value)}
@@ -286,6 +289,7 @@ export function TransactionEditorDialog({
               >
                 <Input
                   type="number"
+                  {...numberField.money}
                   placeholder={selectedTreatment ? rupiah.format(selectedTreatment.treatment_price) : "Ikuti master"}
                   value={values.price_override}
                   onChange={(event) => onFieldChange("price_override", event.target.value)}
@@ -293,12 +297,12 @@ export function TransactionEditorDialog({
               </Field>
               <Field
                 label="Override Fee Rate"
-                labelTooltip="Kosongkan untuk memakai fee rate dokter. Contoh 0.6 berarti 60% dari biaya jasa."
+                labelTooltip="Kosongkan untuk memakai fee rate dokter. Isi 60 untuk 60% dari biaya jasa."
                 required={false}
               >
                 <Input
                   type="number"
-                  step="0.001"
+                  {...numberField.percent}
                   placeholder="Ikuti rate dokter"
                   value={values.fee_rate}
                   onChange={(event) => onFieldChange("fee_rate", event.target.value)}

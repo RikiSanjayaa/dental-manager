@@ -10,6 +10,7 @@ import { Switch } from "@cloudflare/kumo/components/switch";
 import { DatePickerPopover } from "../DatePickerPopover";
 import { MASTER_META } from "./constants";
 import type { EditorSession } from "./types";
+import { numberField } from "../../lib/number-fields";
 
 type Props = {
   editor: EditorSession;
@@ -107,6 +108,7 @@ export function RecordEditorDialog({
                   >
                     <Input
                       type="number"
+                      {...numberField.money}
                       value={v.doctor_cost ?? "0"}
                       onChange={(event) =>
                         onFieldChange("doctor_cost", event.target.value)
@@ -119,6 +121,7 @@ export function RecordEditorDialog({
                   >
                     <Input
                       type="number"
+                      {...numberField.money}
                       value={v.specialist_cost ?? "0"}
                       onChange={(event) =>
                         onFieldChange("specialist_cost", event.target.value)
@@ -131,6 +134,7 @@ export function RecordEditorDialog({
                   >
                     <Input
                       type="number"
+                      {...numberField.money}
                       value={v.bhp_cost ?? "0"}
                       onChange={(event) =>
                         onFieldChange("bhp_cost", event.target.value)
@@ -143,6 +147,7 @@ export function RecordEditorDialog({
                   >
                     <Input
                       type="number"
+                      {...numberField.money}
                       value={v.service_fee ?? "0"}
                       onChange={(event) =>
                         onFieldChange("service_fee", event.target.value)
@@ -155,6 +160,7 @@ export function RecordEditorDialog({
                   >
                     <Input
                       type="number"
+                      {...numberField.money}
                       value={v.treatment_price ?? "0"}
                       onChange={(event) =>
                         onFieldChange("treatment_price", event.target.value)
@@ -229,12 +235,12 @@ export function RecordEditorDialog({
                     />
                   </Field>
                   <Field
-                    label="Fee Normal"
-                    labelTooltip="Persentase fee tindakan normal (contoh: 0.6 = 60%)"
+                    label="Fee Normal (%)"
+                    labelTooltip="Persentase fee tindakan normal. Isi 60 untuk 60%."
                   >
                     <Input
                       type="number"
-                      step="0.001"
+                      {...numberField.percent}
                       value={v.normal_fee_rate ?? "0"}
                       onChange={(event) =>
                         onFieldChange("normal_fee_rate", event.target.value)
@@ -242,12 +248,12 @@ export function RecordEditorDialog({
                     />
                   </Field>
                   <Field
-                    label="Fee Ortho"
-                    labelTooltip="Persentase fee tindakan orthodonti (contoh: 0.7 = 70%)"
+                    label="Fee Ortho (%)"
+                    labelTooltip="Persentase fee tindakan orthodonti. Isi 70 untuk 70%."
                   >
                     <Input
                       type="number"
-                      step="0.001"
+                      {...numberField.percent}
                       value={v.ortho_fee_rate ?? "0"}
                       onChange={(event) =>
                         onFieldChange("ortho_fee_rate", event.target.value)
@@ -255,12 +261,12 @@ export function RecordEditorDialog({
                     />
                   </Field>
                   <Field
-                    label="Pajak"
-                    labelTooltip="Tarif pajak penghasilan dokter (contoh: 0.025 = 2.5%)"
+                    label="Pajak (%)"
+                    labelTooltip="Tarif pajak penghasilan dokter. Isi 2.5 untuk 2,5%."
                   >
                     <Input
                       type="number"
-                      step="0.001"
+                      {...numberField.percent}
                       value={v.tax_rate ?? "0"}
                       onChange={(event) =>
                         onFieldChange("tax_rate", event.target.value)
@@ -317,6 +323,7 @@ export function RecordEditorDialog({
                   >
                     <Input
                       type="number"
+                      {...numberField.money}
                       value={v.base_salary ?? "0"}
                       onChange={(event) =>
                         onFieldChange("base_salary", event.target.value)
@@ -329,6 +336,7 @@ export function RecordEditorDialog({
                   >
                     <Input
                       type="number"
+                      {...numberField.workDays}
                       value={v.working_days ?? "25"}
                       onChange={(event) =>
                         onFieldChange("working_days", event.target.value)

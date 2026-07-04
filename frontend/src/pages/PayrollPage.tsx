@@ -19,7 +19,7 @@ import { Tooltip } from "@cloudflare/kumo/components/tooltip";
 import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart } from "echarts/charts";
-import { GridComponent, TooltipComponent } from "echarts/components";
+import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import {
@@ -39,8 +39,9 @@ import { useEffect, useMemo, useState } from "react";
 import { ConfirmActionDialog } from "../components/ConfirmActionDialog";
 import { DataTable } from "../components/DataTable";
 import { api, downloadFile, rupiah } from "../lib/api";
+import { moneyNumber, numberField, wholeNumber } from "../lib/number-fields";
 
-echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([BarChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
 type PeriodStatus = "empty" | "not_calculated" | "draft" | "locked";
 
@@ -199,16 +200,16 @@ function valuesFromSummary(row: PayrollSummary): AdjustmentValues {
 
 function adjustmentPayload(values: AdjustmentValues) {
   return {
-    double_shift_count_override: Number(values.double_shift_count || 0),
-    overtime_minutes_override: Number(values.overtime_minutes || 0),
-    sunday_count_override: Number(values.sunday_count || 0),
-    bonus: Number(values.bonus || 0),
-    position_allowance: Number(values.position_allowance || 0),
-    other_deduction: Number(values.other_deduction || 0),
-    izin_count: Number(values.izin_count || 0),
-    sakit_count: Number(values.sakit_count || 0),
-    cuti_count: Number(values.cuti_count || 0),
-    alpha_count: Number(values.alpha_count || 0),
+    double_shift_count_override: wholeNumber(values.double_shift_count),
+    overtime_minutes_override: wholeNumber(values.overtime_minutes),
+    sunday_count_override: wholeNumber(values.sunday_count),
+    bonus: moneyNumber(values.bonus),
+    position_allowance: moneyNumber(values.position_allowance),
+    other_deduction: moneyNumber(values.other_deduction),
+    izin_count: wholeNumber(values.izin_count),
+    sakit_count: wholeNumber(values.sakit_count),
+    cuti_count: wholeNumber(values.cuti_count),
+    alpha_count: wholeNumber(values.alpha_count),
     payment_method: values.payment_method || "Transfer",
     bank_name: values.bank_name || null,
     account_name: values.account_name || null,
@@ -1090,7 +1091,7 @@ export function PayrollPage() {
                 >
                   <Input
                     type="number"
-                    step="0.5"
+                    {...numberField.count}
                     value={editor.values.double_shift_count}
                     onChange={(event) =>
                       setEditor((current) => ({
@@ -1109,6 +1110,7 @@ export function PayrollPage() {
                 >
                   <Input
                     type="number"
+                    {...numberField.minutes}
                     value={editor.values.overtime_minutes}
                     onChange={(event) =>
                       setEditor((current) => ({
@@ -1127,7 +1129,7 @@ export function PayrollPage() {
                 >
                   <Input
                     type="number"
-                    step="0.5"
+                    {...numberField.count}
                     value={editor.values.sunday_count}
                     onChange={(event) =>
                       setEditor((current) => ({
@@ -1143,6 +1145,7 @@ export function PayrollPage() {
                 <Field label="Bonus">
                   <Input
                     type="number"
+                    {...numberField.money}
                     value={editor.values.bonus}
                     onChange={(event) =>
                       setEditor((current) => ({
@@ -1158,6 +1161,7 @@ export function PayrollPage() {
                 <Field label="Tunjangan Jabatan">
                   <Input
                     type="number"
+                    {...numberField.money}
                     value={editor.values.position_allowance}
                     onChange={(event) =>
                       setEditor((current) => ({
@@ -1173,6 +1177,7 @@ export function PayrollPage() {
                 <Field label="Potongan Lain">
                   <Input
                     type="number"
+                    {...numberField.money}
                     value={editor.values.other_deduction}
                     onChange={(event) =>
                       setEditor((current) => ({
@@ -1202,6 +1207,7 @@ export function PayrollPage() {
                 <Field label="Izin">
                   <Input
                     type="number"
+                    {...numberField.count}
                     value={editor.values.izin_count}
                     onChange={(event) =>
                       setEditor((current) => ({
@@ -1217,6 +1223,7 @@ export function PayrollPage() {
                 <Field label="Sakit">
                   <Input
                     type="number"
+                    {...numberField.count}
                     value={editor.values.sakit_count}
                     onChange={(event) =>
                       setEditor((current) => ({
@@ -1232,6 +1239,7 @@ export function PayrollPage() {
                 <Field label="Cuti">
                   <Input
                     type="number"
+                    {...numberField.count}
                     value={editor.values.cuti_count}
                     onChange={(event) =>
                       setEditor((current) => ({
@@ -1247,6 +1255,7 @@ export function PayrollPage() {
                 <Field label="Alpha">
                   <Input
                     type="number"
+                    {...numberField.count}
                     value={editor.values.alpha_count}
                     onChange={(event) =>
                       setEditor((current) => ({

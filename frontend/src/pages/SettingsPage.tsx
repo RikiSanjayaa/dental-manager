@@ -14,6 +14,7 @@ import { dateToString, MultiDatePickerPopover, stringToDate } from "../component
 import { PageHeader } from "../components/PageHeader";
 import { api } from "../lib/api";
 import { isDevelopmentEnvironment } from "../lib/environment";
+import { moneyNumber, numberField, percentToFraction, wholeNumber } from "../lib/number-fields";
 
 type PayrollRule = {
   id: number;
@@ -208,14 +209,14 @@ export function SettingsPage() {
         body: JSON.stringify({
           name: rule.name,
           is_default: rule.is_default,
-          default_base_salary: Number(values.default_base_salary || 0),
-          bpjs_jht_rate: Number(values.bpjs_jht_rate || 0) / 100,
-          overtime_rate_per_minute: Number(values.overtime_rate_per_minute || 0),
-          pph21_threshold: Number(values.pph21_threshold || 0),
-          pph21_rate: Number(values.pph21_rate || 0) / 100,
+          default_base_salary: moneyNumber(values.default_base_salary),
+          bpjs_jht_rate: percentToFraction(values.bpjs_jht_rate),
+          overtime_rate_per_minute: wholeNumber(values.overtime_rate_per_minute),
+          pph21_threshold: moneyNumber(values.pph21_threshold),
+          pph21_rate: percentToFraction(values.pph21_rate),
           sunday_multiplier: Number(values.sunday_multiplier || 0),
           double_shift_multiplier: Number(values.double_shift_multiplier || 0),
-          holiday_double_shift_fee: Number(values.holiday_double_shift_fee || 90000),
+          holiday_double_shift_fee: moneyNumber(values.holiday_double_shift_fee, 90000),
         }),
       }),
     onSuccess: async () => {
@@ -246,8 +247,8 @@ export function SettingsPage() {
           timezone1_end: values.timezone1_end,
           timezone2_start: values.timezone2_start,
           timezone2_end: values.timezone2_end,
-          overtime_min_minutes: Number(values.overtime_min_minutes || 0),
-          overtime_max_minutes: Number(values.overtime_max_minutes || 180),
+          overtime_min_minutes: wholeNumber(values.overtime_min_minutes),
+          overtime_max_minutes: wholeNumber(values.overtime_max_minutes, 180),
         }),
       }),
     onSuccess: async () => {
@@ -263,10 +264,10 @@ export function SettingsPage() {
         body: JSON.stringify({
           name: rule.name,
           is_default: rule.is_default,
-          normal_fee_rate: Number(values.normal_fee_rate || 0) / 100,
-          ortho_fee_rate: Number(values.ortho_fee_rate || 0) / 100,
-          tax_rate: Number(values.tax_rate || 0) / 100,
-          default_deduction: Number(values.default_deduction || 0),
+          normal_fee_rate: percentToFraction(values.normal_fee_rate),
+          ortho_fee_rate: percentToFraction(values.ortho_fee_rate),
+          tax_rate: percentToFraction(values.tax_rate),
+          default_deduction: moneyNumber(values.default_deduction),
         }),
       }),
     onSuccess: async () => {
@@ -390,32 +391,32 @@ export function SettingsPage() {
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
                       <Field label="Gaji Pokok Default" labelTooltip="Gaji pokok bulanan bawaan untuk karyawan baru atau import karyawan yang tidak mengisi gaji pokok. Nilai ini masih bisa dioverride di Master Data Karyawan.">
-                        <Input type="number" value={values.default_base_salary} onChange={(event) => updatePayrollDraft(rule.id, "default_base_salary", event.target.value)} />
+                        <Input type="number" {...numberField.money} value={values.default_base_salary} onChange={(event) => updatePayrollDraft(rule.id, "default_base_salary", event.target.value)} />
                       </Field>
                     </div>
                     <div>
                       <Field label="BPJS JHT (%)" labelTooltip="Persentase potongan BPJS/JHT dari gaji pokok efektif pada kalkulasi payroll.">
-                        <Input type="number" step="0.01" value={values.bpjs_jht_rate} onChange={(event) => updatePayrollDraft(rule.id, "bpjs_jht_rate", event.target.value)} />
+                        <Input type="number" {...numberField.percent} value={values.bpjs_jht_rate} onChange={(event) => updatePayrollDraft(rule.id, "bpjs_jht_rate", event.target.value)} />
                       </Field>
                     </div>
                     <div>
                       <Field label="Tarif Lembur / Menit" labelTooltip="Nominal rupiah per menit lembur yang dikalikan dengan total menit lembur absensi.">
-                        <Input type="number" value={values.overtime_rate_per_minute} onChange={(event) => updatePayrollDraft(rule.id, "overtime_rate_per_minute", event.target.value)} />
+                        <Input type="number" {...numberField.ratePerMinute} value={values.overtime_rate_per_minute} onChange={(event) => updatePayrollDraft(rule.id, "overtime_rate_per_minute", event.target.value)} />
                       </Field>
                     </div>
                     <div>
                       <Field label="Threshold PPh21" labelTooltip="Batas gross salary bulanan sebelum PPh21 otomatis dihitung.">
-                        <Input type="number" value={values.pph21_threshold} onChange={(event) => updatePayrollDraft(rule.id, "pph21_threshold", event.target.value)} />
+                        <Input type="number" {...numberField.money} value={values.pph21_threshold} onChange={(event) => updatePayrollDraft(rule.id, "pph21_threshold", event.target.value)} />
                       </Field>
                     </div>
                     <div>
                       <Field label="PPh21 (%)" labelTooltip="Persentase PPh21 yang diterapkan jika gross salary melewati threshold.">
-                        <Input type="number" step="0.01" value={values.pph21_rate} onChange={(event) => updatePayrollDraft(rule.id, "pph21_rate", event.target.value)} />
+                        <Input type="number" {...numberField.percent} value={values.pph21_rate} onChange={(event) => updatePayrollDraft(rule.id, "pph21_rate", event.target.value)} />
                       </Field>
                     </div>
                     <div>
                       <Field label="Fee Libur / Double Shift" labelTooltip="Nominal tetap per kejadian masuk hari libur atau double shift. Default Rp90.000.">
-                        <Input type="number" value={values.holiday_double_shift_fee} onChange={(event) => updatePayrollDraft(rule.id, "holiday_double_shift_fee", event.target.value)} />
+                        <Input type="number" {...numberField.money} value={values.holiday_double_shift_fee} onChange={(event) => updatePayrollDraft(rule.id, "holiday_double_shift_fee", event.target.value)} />
                       </Field>
                     </div>
                   </div>
@@ -469,12 +470,12 @@ export function SettingsPage() {
                     </div>
                     <div>
                       <Field label="Mulai Lembur Setelah (menit)" labelTooltip="Lembur baru dihitung jika melewati ambang ini. Default 30 menit, jadi 30 menit pas belum dihitung.">
-                        <Input type="number" min="0" value={values.overtime_min_minutes} onChange={(event) => updateAttendanceDraft(rule.id, "overtime_min_minutes", event.target.value)} />
+                        <Input type="number" {...numberField.minutes} value={values.overtime_min_minutes} onChange={(event) => updateAttendanceDraft(rule.id, "overtime_min_minutes", event.target.value)} />
                       </Field>
                     </div>
                     <div>
                       <Field label="Maks Lembur (menit)" labelTooltip="Batas maksimal menit lembur yang dibayar per hari. Default 180 menit atau 3 jam.">
-                        <Input type="number" min="0" value={values.overtime_max_minutes} onChange={(event) => updateAttendanceDraft(rule.id, "overtime_max_minutes", event.target.value)} />
+                        <Input type="number" {...numberField.minutes} value={values.overtime_max_minutes} onChange={(event) => updateAttendanceDraft(rule.id, "overtime_max_minutes", event.target.value)} />
                       </Field>
                     </div>
                   </div>
@@ -508,22 +509,22 @@ export function SettingsPage() {
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
                       <Field label="Fee Normal (%)" labelTooltip="Rate fee dokter default untuk treatment non-ortho jika master dokter tidak mengoverride.">
-                        <Input type="number" step="0.01" value={values.normal_fee_rate} onChange={(event) => updateDoctorDraft(rule.id, "normal_fee_rate", event.target.value)} />
+                        <Input type="number" {...numberField.percent} value={values.normal_fee_rate} onChange={(event) => updateDoctorDraft(rule.id, "normal_fee_rate", event.target.value)} />
                       </Field>
                     </div>
                     <div>
                       <Field label="Fee Ortho (%)" labelTooltip="Rate fee dokter default untuk treatment ortho/behel jika master dokter tidak mengoverride.">
-                        <Input type="number" step="0.01" value={values.ortho_fee_rate} onChange={(event) => updateDoctorDraft(rule.id, "ortho_fee_rate", event.target.value)} />
+                        <Input type="number" {...numberField.percent} value={values.ortho_fee_rate} onChange={(event) => updateDoctorDraft(rule.id, "ortho_fee_rate", event.target.value)} />
                       </Field>
                     </div>
                     <div>
                       <Field label="Pajak (%)" labelTooltip="Persentase pajak default yang mengurangi nominal transfer fee dokter.">
-                        <Input type="number" step="0.01" value={values.tax_rate} onChange={(event) => updateDoctorDraft(rule.id, "tax_rate", event.target.value)} />
+                        <Input type="number" {...numberField.percent} value={values.tax_rate} onChange={(event) => updateDoctorDraft(rule.id, "tax_rate", event.target.value)} />
                       </Field>
                     </div>
                     <div>
                       <Field label="Potongan Default" labelTooltip="Nominal potongan default per dokter saat rekap fee dokter dihitung.">
-                        <Input type="number" value={values.default_deduction} onChange={(event) => updateDoctorDraft(rule.id, "default_deduction", event.target.value)} />
+                        <Input type="number" {...numberField.money} value={values.default_deduction} onChange={(event) => updateDoctorDraft(rule.id, "default_deduction", event.target.value)} />
                       </Field>
                     </div>
                   </div>
