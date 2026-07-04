@@ -798,6 +798,8 @@ payrollRoutes.get("/payroll-periods/:period/slips/:employee_id", async (c) => {
 payrollRoutes.patch("/payroll-records/:id", adminOnly, async (c) => {
   const user = c.get("user");
   const id = Number(c.req.param("id"));
+  const existing = await first<Record<string, unknown>>(c.env.DB.prepare("SELECT * FROM payrollrecord WHERE id = ?").bind(id));
+  if (!existing) throw new HTTPException(404, { message: "Data tidak ditemukan" });
   const values = pick(await c.req.json<Record<string, unknown>>(), [
     "bonus",
     "position_allowance",
@@ -816,9 +818,48 @@ payrollRoutes.patch("/payroll-records/:id", adminOnly, async (c) => {
     "needs_review",
   ]);
   if (!Object.keys(values).length) throw new HTTPException(400, { message: "Payload kosong." });
-  await c.env.DB.prepare(`UPDATE payrollrecord SET ${assignmentSql(values)} WHERE id = ?`).bind(...Object.values(values), id).run();
-  const row = await first<{ period: string; employee_id: number }>(c.env.DB.prepare("SELECT period, employee_id FROM payrollrecord WHERE id = ?").bind(id));
-  if (!row) throw new HTTPException(404, { message: "Data tidak ditemukan" });
+  const employee = await first<EmployeeRow>(c.env.DB.prepare("SELECT * FROM employee WHERE id = ?").bind(existing.employee_id));
+  if (!employee) throw new HTTPException(404, { message: "Karyawan tidak ditemukan" });
+  const attendanceRows = await all<any>(
+    c.env.DB.prepare("SELECT * FROM attendancerecord WHERE period = ? AND employee_id = ?").bind(existing.period, existing.employee_id)
+  );
+  const recalculated = calculatePayrollRecord(
+    {
+      ...existing,
+      ...values,
+      bonus: Number(values.bonus ?? existing.bonus ?? 0),
+      position_allowance: Number(values.position_allowance ?? existing.position_allowance ?? 0),
+      other_deduction: Number(values.other_deduction ?? existing.other_deduction ?? 0),
+    },
+    employee,
+    await payrollRule(c.env),
+    attendanceRows
+  );
+  const updateValues = {
+    ...values,
+    ...pick(recalculated, [
+      "base_salary",
+      "working_days",
+      "auto_double_shift_count",
+      "auto_sunday_count",
+      "double_shift_count",
+      "sunday_count",
+      "double_shift_fee",
+      "sunday_fee",
+      "overtime_minutes",
+      "overtime_rate_per_minute",
+      "overtime_total",
+      "bpjs_deduction",
+      "pph21",
+      "net_salary",
+      "bank_name",
+      "account_name",
+      "account_number",
+    ]),
+  };
+  await c.env.DB.prepare(`UPDATE payrollrecord SET ${assignmentSql(updateValues)}, calculated_at = ? WHERE id = ?`)
+    .bind(...Object.values(updateValues), nowIso(), id)
+    .run();
   await recordAudit(c.env, {
     actor_id: user.id,
     actor_username: user.username,
@@ -827,9 +868,9 @@ payrollRoutes.patch("/payroll-records/:id", adminOnly, async (c) => {
     entity_type: "payroll_record",
     entity_id: id,
     description: "Mengupdate adjustment payroll.",
-    metadata: { period: row.period, employee_id: row.employee_id, changes: values },
+    metadata: { period: existing.period, employee_id: existing.employee_id, changes: values },
   });
-  return c.json((await payrollSummaries(c.env, row.period)).find((item) => item.employee_id === row.employee_id) ?? null);
+  return c.json((await payrollSummaries(c.env, String(existing.period))).find((item) => item.employee_id === existing.employee_id) ?? null);
 });
 
 payrollRoutes.post("/payroll-periods/:period/lock", adminOnly, async (c) => {
