@@ -130,9 +130,12 @@ function isSunday(dateText: string): boolean {
   return new Date(`${dateText}T00:00:00Z`).getUTCDay() === 0;
 }
 
+const DOUBLE_SHIFT_MIN_MINUTES = 150;
+
 export function attendedDoubleShift(record: AttendanceRecordShape, _rule: AttendanceRuleShape): boolean {
-  const hasBothShiftLogs = Boolean(record.timezone1_in || record.timezone1_out) && Boolean(record.timezone2_in || record.timezone2_out);
-  return hasBothShiftLogs;
+  const tz1Dur = shiftDuration(record.timezone1_in, record.timezone1_out);
+  const tz2Dur = shiftDuration(record.timezone2_in, record.timezone2_out);
+  return tz1Dur >= DOUBLE_SHIFT_MIN_MINUTES && tz2Dur >= DOUBLE_SHIFT_MIN_MINUTES;
 }
 
 export function calculateAttendanceRecord<T extends AttendanceRecordShape>(record: T, rule: AttendanceRuleShape): T {
