@@ -130,15 +130,9 @@ function isSunday(dateText: string): boolean {
   return new Date(`${dateText}T00:00:00Z`).getUTCDay() === 0;
 }
 
-export function attendedDoubleShift(record: AttendanceRecordShape, rule: AttendanceRuleShape): boolean {
-  const totalDuration =
-    shiftDuration(record.timezone1_in, record.timezone1_out) +
-    shiftDuration(record.timezone2_in, record.timezone2_out);
-  const timezone2Out = minutesOfDay(record.timezone2_out);
-  const timezone2End = minutesOfDay(rule.timezone2_end);
-  const reachesTimezone2End = timezone2Out != null && timezone2End != null && timezone2Out >= timezone2End - 60;
+export function attendedDoubleShift(record: AttendanceRecordShape, _rule: AttendanceRuleShape): boolean {
   const hasBothShiftLogs = Boolean(record.timezone1_in || record.timezone1_out) && Boolean(record.timezone2_in || record.timezone2_out);
-  return totalDuration >= 360 || reachesTimezone2End || hasBothShiftLogs;
+  return hasBothShiftLogs;
 }
 
 export function calculateAttendanceRecord<T extends AttendanceRecordShape>(record: T, rule: AttendanceRuleShape): T {
