@@ -68,6 +68,14 @@ a {
   stroke: currentColor !important;
 }
 
+.app-sidebar:not([data-mobile="true"]) {
+  bottom: 0;
+  left: 0;
+  position: fixed;
+  top: 0;
+  z-index: 30;
+}
+
 .master-editor-form input,
 .master-editor-form [role="combobox"] {
   width: 100%;
@@ -126,5 +134,155 @@ a {
 @media (max-width: 900px) {
   .payroll-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  [role="dialog"],
+  [role="alertdialog"] {
+    max-height: calc(100dvh - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+    min-width: 0 !important;
+    width: calc(100vw - 1rem) !important;
+  }
+
+  [role="dialog"] > form,
+  [role="dialog"] > div,
+  [role="alertdialog"] > form,
+  [role="alertdialog"] > div {
+    max-height: calc(100dvh - 1rem) !important;
+  }
+
+  [role="dialog"] .px-6,
+  [role="dialog"] .px-8,
+  [role="alertdialog"] .px-6,
+  [role="alertdialog"] .px-8 {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  [role="dialog"] .py-5,
+  [role="alertdialog"] .py-5 {
+    padding-bottom: 1rem !important;
+    padding-top: 1rem !important;
+  }
+
+  [role="dialog"] .grid,
+  [role="alertdialog"] .grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  [role="dialog"] .flex.items-start.justify-between,
+  [role="alertdialog"] .flex.items-start.justify-between {
+    flex-wrap: wrap;
+  }
+
+  [role="dialog"] .flex.justify-end,
+  [role="alertdialog"] .flex.justify-end {
+    flex-wrap: wrap;
+  }
+
+  [role="dialog"] .flex.gap-2 > .flex-1,
+  [role="alertdialog"] .flex.gap-2 > .flex-1 {
+    min-width: 8rem;
+  }
+
+  [role="dialog"] .border-t.flex.justify-end.gap-2,
+  [role="dialog"] .border-t .flex.justify-end.gap-2,
+  [role="dialog"] .border-t .flex.flex-wrap.justify-end.gap-2,
+  [role="alertdialog"] .border-t.flex.justify-end.gap-2,
+  [role="alertdialog"] .border-t .flex.justify-end.gap-2,
+  [role="alertdialog"] .border-t .flex.flex-wrap.justify-end.gap-2,
+  [role="dialog"] .dialog-action-buttons,
+  [role="alertdialog"] .dialog-action-buttons {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    width: 100%;
+  }
+
+  [role="dialog"] .border-t.flex.justify-end.gap-2 > *,
+  [role="dialog"] .border-t .flex.justify-end.gap-2 > *,
+  [role="dialog"] .border-t .flex.flex-wrap.justify-end.gap-2 > *,
+  [role="alertdialog"] .border-t.flex.justify-end.gap-2 > *,
+  [role="alertdialog"] .border-t .flex.justify-end.gap-2 > *,
+  [role="alertdialog"] .border-t .flex.flex-wrap.justify-end.gap-2 > *,
+  [role="dialog"] .dialog-action-buttons > *,
+  [role="alertdialog"] .dialog-action-buttons > * {
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+  }
+
+  [role="dialog"] .dialog-action-buttons--primary-extra > :nth-child(2),
+  [role="alertdialog"] .dialog-action-buttons--primary-extra > :nth-child(2) {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+
+  .app-content {
+    gap: 1rem !important;
+    padding: 1.25rem 0.75rem 1rem !important;
+  }
+
+  .app-content > .flex.items-start.justify-between {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding-block: 0.5rem;
+  }
+
+  .app-content > .flex.items-start.justify-between > :last-child {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .app-content > .flex.items-start.justify-between > :last-child > * {
+    max-width: 100%;
+  }
+
+  .app-content .flex.flex-wrap.items-center.gap-2,
+  .app-content .flex.flex-wrap.items-center.justify-end.gap-2 {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .app-content .flex.flex-wrap.items-center.gap-2 > *,
+  .app-content .flex.flex-wrap.items-center.justify-end.gap-2 > * {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .app-content .flex.flex-wrap.items-center.gap-2 > button,
+  .app-content .flex.flex-wrap.items-center.gap-2 > a,
+  .app-content .flex.flex-wrap.items-center.gap-2 > label,
+  .app-content .flex.flex-wrap.items-center.justify-end.gap-2 > button,
+  .app-content .flex.flex-wrap.items-center.justify-end.gap-2 > a,
+  .app-content .flex.flex-wrap.items-center.justify-end.gap-2 > label {
+    justify-content: center;
+  }
+
+  .app-content .flex.flex-wrap.items-center.gap-2 input,
+  .app-content .flex.flex-wrap.items-center.justify-end.gap-2 input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .app-content .flex.min-w-72 {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .app-content .w-36,
+  .app-content .w-40,
+  .app-content .w-44,
+  .app-content .w-48,
+  .app-content .w-52 {
+    width: 100%;
+  }
+
+  .app-content .payroll-summary-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -341,7 +341,7 @@ export function TransactionEditorDialog({
                 {needsReview ? "Review" : "OK"}
               </Badge>
             </div>
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="dialog-action-buttons dialog-action-buttons--primary-extra flex flex-wrap justify-end gap-2">
               <Dialog.Close render={(props) => <Button {...props} variant="secondary" type="button">Batal</Button>} />
               {editor.mode === "create" ? (
                 <Button
