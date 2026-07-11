@@ -54,7 +54,6 @@ export function AppShell({ user }: Props) {
       defaultOpen
       collapsible="icon"
       defaultWidth={SIDEBAR_WIDTH}
-      mobileBreakpoint={0}
       className="h-screen overflow-hidden bg-kumo-canvas"
       data-theme="kumo"
       style={{ height: "100vh" }}
@@ -65,7 +64,7 @@ export function AppShell({ user }: Props) {
 }
 
 function AppShellFrame({ user }: Props) {
-  const { state } = useSidebar();
+  const { isMobile, state } = useSidebar();
   const { brandName } = useBrand();
   const navigate = useNavigate();
   const location = useLocation();
@@ -89,8 +88,9 @@ function AppShellFrame({ user }: Props) {
       .slice(0, 2)
       .toUpperCase();
   }, [user.full_name]);
-  const sidebarOffset =
-    state === "expanded" ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH;
+  const sidebarOffset = isMobile
+    ? 0
+    : state === "expanded" ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH;
   const activeNav = nav.find((item) =>
     item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to),
   );
@@ -103,7 +103,7 @@ function AppShellFrame({ user }: Props) {
   return (
     <>
       <Sidebar
-        className="app-sidebar fixed top-0 bottom-0 left-0 z-30"
+        className="app-sidebar"
         style={{ height: "100vh" }}
       >
         <Sidebar.Header>
@@ -184,7 +184,7 @@ function AppShellFrame({ user }: Props) {
       </Sidebar>
 
       <main
-        className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-kumo-canvas transition-[margin-left]"
+        className="app-main flex min-w-0 flex-1 flex-col overflow-y-auto bg-kumo-canvas transition-[margin-left]"
         style={{ marginLeft: sidebarOffset, height: "100vh" }}
       >
         <header
@@ -192,8 +192,8 @@ function AppShellFrame({ user }: Props) {
           style={{
             height: 56,
             minHeight: 56,
-            paddingLeft: 20,
-            paddingRight: 20,
+            paddingLeft: isMobile ? 12 : 20,
+            paddingRight: isMobile ? 12 : 20,
           }}
         >
           <Sidebar.Trigger aria-label="Toggle sidebar" />
@@ -218,7 +218,7 @@ function AppShellFrame({ user }: Props) {
             />
 
             <div
-              className="flex items-center gap-2 border-l border-kumo-hairline pl-3"
+              className="hidden items-center gap-2 border-l border-kumo-hairline pl-3 sm:flex"
               style={{ width: 190 }}
             >
               <div className="grid min-w-0 flex-1 justify-items-end">
@@ -252,7 +252,7 @@ function AppShellFrame({ user }: Props) {
           </div>
         </header>
         <div
-          className="mx-auto flex w-full flex-col gap-5 px-6 pt-8 pb-6"
+          className="app-content mx-auto flex w-full flex-col gap-5 px-6 pt-8 pb-6"
           style={{ maxWidth: 1280 }}
         >
           <Outlet context={{ user }} />
