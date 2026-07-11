@@ -32,6 +32,12 @@ app.get("/health", async (c) => {
 
 app.route("/auth", authRoutes);
 app.get("/reports/templates/:template_name", (c) => templateResponse(c.req.param("template_name") ?? ""));
+app.get("/settings/report-identity", async (c) => {
+  const item = await c.env.DB.prepare("SELECT value FROM appsetting WHERE key = ?")
+    .bind("report_clinic_name")
+    .first<{ value: string }>();
+  return c.json({ clinic_name: item?.value || c.env.APP_NAME || "Dental Manager" });
+});
 app.use("*", currentUser);
 app.route("/audit-logs", auditRoutes);
 app.route("/", dashboardRoutes);

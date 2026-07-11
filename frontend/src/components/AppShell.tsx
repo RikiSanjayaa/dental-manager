@@ -24,7 +24,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { api, setToken, type UserMe } from "../lib/api";
 import { isAdministrator, roleLabel } from "../lib/auth";
-import { brandName } from "../lib/brand";
+import { useBrand } from "../lib/brand";
 
 type Props = {
   user: UserMe;
@@ -66,6 +66,7 @@ export function AppShell({ user }: Props) {
 
 function AppShellFrame({ user }: Props) {
   const { state } = useSidebar();
+  const { brandName } = useBrand();
   const navigate = useNavigate();
   const location = useLocation();
   const [mode, setMode] = useState<"light" | "dark">(() => {

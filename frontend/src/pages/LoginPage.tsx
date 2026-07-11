@@ -2,24 +2,23 @@ import { Banner } from "@cloudflare/kumo/components/banner";
 import { Button } from "@cloudflare/kumo/components/button";
 import { Checkbox } from "@cloudflare/kumo/components/checkbox";
 import { Input } from "@cloudflare/kumo/components/input";
-import { LayerCard } from "@cloudflare/kumo/components/layer-card";
-import { SensitiveInput } from "@cloudflare/kumo/components/sensitive-input";
 import { Switch } from "@cloudflare/kumo/components/switch";
-import { Text } from "@cloudflare/kumo/components/text";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Stethoscope } from "lucide-react";
+import { Eye, EyeOff, Stethoscope } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { login } from "../lib/api";
-import { brandName, brandShortName } from "../lib/brand";
+import { useBrand } from "../lib/brand";
 
 export function LoginPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { brandName, brandShortName } = useBrand();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [mode, setMode] = useState<"light" | "dark">(() => {
     return localStorage.getItem("dental_manager_mode") === "dark" ? "dark" : "light";
   });
@@ -42,86 +41,104 @@ export function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-kumo-canvas" data-theme="kumo">
-      <header
-        className="fixed inset-x-0 z-10 flex items-center justify-between"
-        style={{ paddingLeft: 28, paddingRight: 28, top: 24 }}
-      >
-        <div className="flex items-center gap-2 text-kumo-brand">
-          <Stethoscope size={30} />
-          <Text as="span" variant="body" bold>
-            {brandShortName}
-          </Text>
+    <main className="login-root" data-theme="kumo">
+      <aside className="login-hero">
+        <img
+          className="login-hero-photo"
+          src="/login-clinic.jpg"
+          alt="Ruang praktik dokter gigi"
+        />
+        <div className="login-hero-scrim" />
+
+        <div className="login-hero-brand">
+          <span className="login-hero-mark">
+            <Stethoscope size={22} strokeWidth={2.2} />
+          </span>
+          {brandShortName}
         </div>
 
-        <Switch
-          size="sm"
-          variant="neutral"
-          label={mode === "dark" ? "Dark" : "Light"}
-          controlFirst={false}
-          checked={mode === "dark"}
-          onCheckedChange={(checked) => setMode(checked ? "dark" : "light")}
-        />
-      </header>
+        <div className="login-hero-footer">
+          &copy; {new Date().getFullYear()} {brandName}
+        </div>
+      </aside>
 
-      <section
-        className="fixed inset-0 px-4"
-        style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
-      >
-        <div className="grid gap-4" style={{ width: "100%", maxWidth: 450 }}>
-          <LayerCard className="grid gap-6 p-6 shadow-sm md:p-8" style={{ width: "100%" }}>
-            <div style={{ display: "flex", justifyContent: "center" }}>
-              <div
-                className="grid place-items-center rounded-full bg-kumo-brand text-white"
-                style={{ alignItems: "center", display: "grid", height: 48, justifyItems: "center", width: 48 }}
-              >
-                <Stethoscope size={28} />
-              </div>
-            </div>
+      <section className="login-panel">
+        <div className="login-panel-topbar">
+          <Switch
+            size="sm"
+            variant="neutral"
+            label={mode === "dark" ? "Dark" : "Light"}
+            controlFirst={false}
+            checked={mode === "dark"}
+            onCheckedChange={(checked) => setMode(checked ? "dark" : "light")}
+          />
+        </div>
 
-            <Text as="h1" variant="heading2">
-              Sign in to {brandName}
-            </Text>
+        <div className="login-form-wrap">
+          <div className="login-form-head">
+            <p className="login-form-kicker">Selamat datang kembali</p>
+            <h2 className="login-form-title">Masuk ke {brandName}</h2>
+          </div>
 
-            {mutation.isError ? (
+          {mutation.isError ? (
+            <div style={{ marginBottom: 18 }}>
               <Banner
                 variant="error"
                 title="Login gagal"
                 description={mutation.error instanceof Error ? mutation.error.message : "Periksa server dan kredensial akun."}
               />
-            ) : null}
+            </div>
+          ) : null}
 
-            <form onSubmit={submit} className="grid gap-4">
+          <form onSubmit={submit} className="login-fields">
+            <Input
+              label="Username"
+              autoComplete="username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+            <div className="login-password">
               <Input
-                label="Username"
-                autoComplete="username"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-              />
-              <SensitiveInput
                 label="Password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 value={password}
-                onValueChange={setPassword}
+                onChange={(event) => setPassword(event.target.value)}
               />
-              <Checkbox
-                label="Remember me"
-                checked={remember}
-                onCheckedChange={(checked) => setRemember(Boolean(checked))}
-              />
-              <Button type="submit" variant="primary" className="w-full justify-center text-center" loading={mutation.isPending}>
+              <button
+                type="button"
+                className="login-password-toggle"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+
+            <Checkbox
+              label="Remember me"
+              checked={remember}
+              onCheckedChange={(checked) => setRemember(Boolean(checked))}
+            />
+
+            <div className="login-actions">
+              <Button
+                type="submit"
+                variant="primary"
+                className="w-full justify-center text-center"
+                loading={mutation.isPending}
+              >
                 Sign in
               </Button>
-            </form>
+            </div>
+          </form>
 
-            <Button type="button" variant="ghost" className="w-full justify-center text-center">
-              Reset password
-            </Button>
-          </LayerCard>
-
-          <Text as="p" variant="secondary" size="sm" DANGEROUS_className="block text-center">
-            Hubungi administrator jika belum mempunyai akun.
-          </Text>
+          <div className="login-foot-note">
+            <span style={{ color: "var(--text-color-kumo-subtle)", fontSize: 13 }}>
+              Hubungi administrator jika lupa password atau belum mempunyai akun.
+            </span>
+          </div>
         </div>
       </section>
     </main>

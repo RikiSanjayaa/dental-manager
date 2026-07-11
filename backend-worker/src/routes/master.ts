@@ -390,10 +390,8 @@ masterRoutes.patch("/users/:id", currentUser, adminOnly, async (c) => {
   return c.json(await getById(c as never, "user", id));
 });
 
-masterRoutes.get("/settings/report-identity", currentUser, async (c) => {
-  const item = await c.env.DB.prepare("SELECT value FROM appsetting WHERE key = ?").bind("report_clinic_name").first<{ value: string }>();
-  return c.json({ clinic_name: item?.value || c.env.APP_NAME || "Dental Manager" });
-});
+// GET /settings/report-identity is registered publicly in index.ts (pre-auth) so the
+// login page can display the clinic name before sign-in.
 
 masterRoutes.patch("/settings/report-identity", currentUser, adminOnly, async (c) => {
   const body = await c.req.json<{ clinic_name?: string }>();

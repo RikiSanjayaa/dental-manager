@@ -5,7 +5,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { api, getToken, type UserMe } from "./lib/api";
 import { isAdministrator } from "./lib/auth";
-import { brandName } from "./lib/brand";
+import { useBrand } from "./lib/brand";
 import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { AttendancePage } from "./pages/AttendancePage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -22,6 +22,7 @@ import { UsersPage } from "./pages/UsersPage";
 
 function Protected() {
   const token = getToken();
+  const { brandName } = useBrand();
   const { data, isLoading, isError } = useQuery({
     queryKey: ["me"],
     queryFn: () => api<UserMe>("/auth/me"),

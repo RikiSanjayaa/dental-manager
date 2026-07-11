@@ -638,7 +638,7 @@ async def import_employees(session: SessionDep, _: AdminUser, file: UploadFile =
 
 
 @router.get("/settings/report-identity", response_model=ReportIdentity)
-def get_report_identity(session: SessionDep, _: CurrentUser) -> ReportIdentity:
+def get_report_identity(session: SessionDep) -> ReportIdentity:
     item = session.exec(select(AppSetting).where(AppSetting.key == "report_clinic_name")).first()
     return ReportIdentity(clinic_name=item.value if item and item.value.strip() else get_settings().app_name)
 

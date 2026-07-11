@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap");
+
 :root {
   color-scheme: light;
   font-family: "Aptos", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
@@ -126,5 +128,186 @@ a {
 @media (max-width: 900px) {
   .payroll-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Login page                                                         */
+/* ------------------------------------------------------------------ */
+
+.login-root {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  min-height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  background: var(--color-kumo-canvas);
+}
+
+/* --- Left image panel --- */
+
+.login-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 40px 44px;
+  overflow: hidden;
+  isolation: isolate;
+  color: #ffffff;
+}
+
+.login-hero-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: -2;
+}
+
+/* flat scrim (no gradient) for text legibility over the photo */
+.login-hero-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.login-hero-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: 0.01em;
+}
+
+.login-hero-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  color: #ffffff;
+  background: var(--color-kumo-brand);
+}
+
+.login-hero-footer {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* --- Right form panel --- */
+
+.login-panel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  background: var(--color-kumo-base);
+}
+
+.login-panel-topbar {
+  position: absolute;
+  top: 26px;
+  right: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.login-form-wrap {
+  width: 100%;
+  max-width: 384px;
+}
+
+.login-form-head {
+  margin-bottom: 30px;
+}
+
+.login-form-kicker {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-color-kumo-subtle);
+}
+
+.login-form-title {
+  margin: 6px 0 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 500;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--text-color-kumo-default);
+}
+
+.login-fields {
+  display: grid;
+  gap: 18px;
+}
+
+.login-password {
+  position: relative;
+}
+
+.login-password input {
+  padding-right: 40px;
+}
+
+.login-password-toggle {
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-color-kumo-subtle);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.login-password-toggle:hover {
+  color: var(--text-color-kumo-default);
+}
+
+.login-password-toggle:focus-visible {
+  outline: 2px solid var(--color-kumo-brand);
+  outline-offset: 1px;
+}
+
+.login-row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.login-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.login-foot-note {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-kumo-hairline);
+  text-align: center;
+}
+
+/* Hide the image panel on small screens, keep the form clean */
+@media (max-width: 860px) {
+  .login-root {
+    grid-template-columns: 1fr;
+  }
+
+  .login-hero {
+    display: none;
   }
 }
