@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { adminOnly, type AppVariables } from "../auth";
 import { calculateDoctorTransaction } from "../calculations";
 import { all, first, recordAudit } from "../db";
+import { isDevelopment } from "../dev-data";
 import { nowIso } from "../http";
 import type { Env } from "../types";
 import { dateTextValue, numberValue, textValue, workbookRowsFromRequest } from "../xlsx";
@@ -383,7 +384,52 @@ doctorFeeRoutes.post("/doctor-transactions/import", async (c) => {
 });
 
 doctorFeeRoutes.post("/doctor-transactions/generate-random", adminOnly, async (c) => {
-  return c.json({ period: c.req.query("period") || new Date().toISOString().slice(0, 7), created: 0, calculated: 0 });
+  if (!isDevelopment(c.env)) throw new HTTPException(403, { message: "Generate data tes hanya tersedia di development." });
+  const period = c.req.query("period") || new Date().toISOString().slice(0, 7);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new HTTPException(400, { message: "Periode harus berformat YYYY-MM." });
+  const requested = Number(c.req.query("count") || 36);
+  const count = Math.max(1, Math.min(Number.isFinite(requested) ? Math.floor(requested) : 36, 120));
+  const doctors = await all<Doctor>(c.env.DB.prepare("SELECT * FROM doctor WHERE is_active = 1 ORDER BY id"));
+  const treatments = await all<Treatment>(c.env.DB.prepare("SELECT * FROM treatment WHERE is_active = 1 ORDER BY id"));
+  if (!doctors.length || !treatments.length) throw new HTTPException(409, { message: "Master dokter dan treatment harus tersedia sebelum generate data tes." });
+  const [year, month] = period.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const names = ["Ayu Pradnya", "Made Wirawan", "Komang Sari", "Ketut Mahendra", "Rangga Husnan", "Rina Kusumawati", "Deni Hidayat", "Lisa Paramita", "Jamal", "Nanik Soraya"];
+  let created = 0;
+  for (const doctor of doctors) {
+    for (let index = 0; index < count; index += 1) {
+      const treatment = treatments[Math.floor(Math.random() * treatments.length)];
+      const qty = [1, 1, 1, 1, 2, 2, 3][Math.floor(Math.random() * 7)];
+      const rawDiscount = [0, 0, 0, 0, 20000, 30000, 50000, 100000][Math.floor(Math.random() * 8)];
+      const calculated = await hydrateAndCalculate(c.env, {
+        period,
+        transaction_date: `${period}-${String(1 + Math.floor(Math.random() * lastDay)).padStart(2, "0")}`,
+        doctor_id: doctor.id,
+        patient_name: `${names[Math.floor(Math.random() * names.length)]} ${created + 1}`,
+        treatment_id: treatment.id,
+        qty,
+        discount_amount: Math.min(rawDiscount, Math.max(0, treatment.treatment_price * qty - 1)),
+      });
+      const values = { ...pick(calculated, trxFields), created_at: nowIso() };
+      const fields = Object.keys(values);
+      await c.env.DB.prepare(`INSERT INTO doctortransaction (${fields.join(", ")}) VALUES (${fields.map(() => "?").join(", ")})`).bind(...Object.values(values)).run();
+      created += 1;
+    }
+  }
+  const rule = await defaultRule(c.env);
+  const transactions = await rowsForPeriod(c.env, period);
+  await c.env.DB.prepare("DELETE FROM doctorperiodsummary WHERE period = ?").bind(period).run();
+  for (const doctor of doctors) {
+    const rows = transactions.filter((row) => row.doctor_id === doctor.id);
+    const treatmentFee = rows.filter((row) => !row.special_fee_amount).reduce((sum, row) => sum + Number(row.doctor_fee_amount || 0), 0);
+    const orthoFee = rows.reduce((sum, row) => sum + Number(row.special_fee_amount || 0), 0);
+    const totalBill = rows.reduce((sum, row) => sum + Number(row.total_bill_amount || 0), 0);
+    const totalFee = treatmentFee + orthoFee;
+    const tax = totalFee * (doctor.tax_rate ?? rule.tax_rate);
+    await c.env.DB.prepare(`INSERT INTO doctorperiodsummary (period, doctor_id, status, treatment_fee_total, ortho_fee_total, total_fee, total_bill, deduction, tax, transfer_amount, calculated_at) VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(period, doctor.id, Math.round(treatmentFee), Math.round(orthoFee), Math.round(totalFee), Math.round(totalBill), Math.round(rule.default_deduction), Math.round(tax), Math.round(totalFee - rule.default_deduction - tax), nowIso()).run();
+  }
+  return c.json({ period, created, calculated: doctors.length });
 });
 
 doctorFeeRoutes.post("/doctor-periods/:period/calculate", adminOnly, async (c) => {

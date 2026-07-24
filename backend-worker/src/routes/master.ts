@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { adminOnly, currentUser, hashPassword, type AppVariables } from "../auth";
 import { all, first, recordAudit } from "../db";
+import { isDevelopment, refreshDevelopmentDatabase } from "../dev-data";
 import { nowIso } from "../http";
 import type { Env } from "../types";
 import { boolValue, numberValue, textValue, workbookRowsFromRequest } from "../xlsx";
@@ -557,8 +558,9 @@ masterRoutes.post("/master-data/import/employees", currentUser, adminOnly, async
 });
 
 masterRoutes.post("/dev/refresh-database", currentUser, adminOnly, async (c) => {
-  if ((c.env.APP_ENV || "development").toLowerCase() === "production") {
+  if (!isDevelopment(c.env)) {
     throw new HTTPException(403, { message: "Refresh database hanya tersedia di development." });
   }
-  throw new HTTPException(501, { message: "Refresh database Worker belum diimplementasikan." });
+  await refreshDevelopmentDatabase(c.env);
+  return c.json({ status: "ok", message: "Database refreshed and development seed data created." });
 });
