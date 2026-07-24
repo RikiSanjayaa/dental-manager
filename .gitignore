@@ -13,6 +13,8 @@ backend-worker/.wrangler/
 .wrangler/
 
 data/
+backups/
+d1-export.sql
 uploads/
 backend/data/
 backend/uploads/
