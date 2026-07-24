@@ -25,6 +25,7 @@ import { CanvasRenderer } from "echarts/renderers";
 import {
   AlertTriangle,
   Calculator,
+  Database,
   Eye,
   FileSpreadsheet,
   FileText,
@@ -39,6 +40,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ConfirmActionDialog } from "../components/ConfirmActionDialog";
 import { DataTable } from "../components/DataTable";
 import { api, downloadFile, rupiah } from "../lib/api";
+import { isDevelopmentEnvironment } from "../lib/environment";
 import { moneyNumber, numberField, wholeNumber } from "../lib/number-fields";
 
 echarts.use([BarChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
@@ -312,6 +314,29 @@ export function PayrollPage() {
     onError: (error) =>
       toasts.add({
         title: "Payroll gagal dihitung",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      }),
+  });
+
+  const generateRandom = useMutation({
+    mutationFn: () =>
+      api<{ period: string; attendance_created: number; payroll_created: number }>(
+        `/payroll-periods/${period}/generate-random?count=20`,
+        { method: "POST" },
+      ),
+    onSuccess: async (result) => {
+      toasts.add({
+        title: "Data tes payroll dibuat",
+        description: `${result.attendance_created} absensi dan ${result.payroll_created} payroll dibuat.`,
+        variant: "success",
+      });
+      await queryClient.invalidateQueries({ queryKey: ["payroll-overview", period] });
+      await queryClient.invalidateQueries({ queryKey: ["payroll-overtime", period] });
+    },
+    onError: (error) =>
+      toasts.add({
+        title: "Data tes payroll gagal dibuat",
         description: error instanceof Error ? error.message : undefined,
         variant: "error",
       }),
@@ -626,6 +651,17 @@ export function PayrollPage() {
           >
             Hitung Ulang
           </Button>
+          {isDevelopmentEnvironment ? (
+            <Button
+              variant="secondary"
+              icon={<Database size={18} />}
+              loading={generateRandom.isPending}
+              disabled={overview?.status === "locked" || overview?.attendance_count !== 0 || hasPayrollRows}
+              onClick={() => generateRandom.mutate()}
+            >
+              Generate Data Tes
+            </Button>
+          ) : null}
           {overview?.status === "locked" ? (
             <Button
               variant="secondary"

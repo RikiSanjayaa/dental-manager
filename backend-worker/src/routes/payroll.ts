@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { adminOnly, type AppVariables } from "../auth";
 import { calculateAttendanceRecord, calculatePayrollRecord } from "../calculations";
 import { all, first, recordAudit } from "../db";
+import { isDevelopment } from "../dev-data";
 import { nowIso } from "../http";
 import type { Env } from "../types";
 
@@ -398,6 +399,74 @@ payrollRoutes.post("/attendance-records/:id/protest", async (c) => {
     metadata: { period: updated?.period, employee_id: updated?.employee_id, work_date: updated?.work_date },
   });
   return c.json(updated);
+});
+
+payrollRoutes.post("/payroll-periods/:period/generate-random", adminOnly, async (c) => {
+  if (!isDevelopment(c.env)) throw new HTTPException(403, { message: "Generate data tes hanya tersedia di development." });
+  const period = c.req.param("period") || "";
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new HTTPException(400, { message: "Periode harus berformat YYYY-MM." });
+  const requested = Number(c.req.query("count") || 20);
+  const count = Math.max(1, Math.min(Number.isFinite(requested) ? Math.floor(requested) : 20, 31));
+  const existing = await first<{ attendance_count: number; payroll_count: number; locked_count: number }>(
+    c.env.DB.prepare(`SELECT
+      (SELECT COUNT(*) FROM attendancerecord WHERE period = ?) AS attendance_count,
+      (SELECT COUNT(*) FROM payrollrecord WHERE period = ?) AS payroll_count,
+      (SELECT COUNT(*) FROM payrollrecord WHERE period = ? AND status = 'locked') AS locked_count`).bind(period, period, period)
+  );
+  if (existing?.locked_count) throw new HTTPException(409, { message: "Periode payroll sudah locked." });
+  if (existing?.attendance_count || existing?.payroll_count) {
+    throw new HTTPException(409, { message: "Periode sudah berisi absensi atau payroll. Pilih periode kosong agar data tidak tertimpa." });
+  }
+  const employees = await all<EmployeeRow & { attendance_id: string | null }>(c.env.DB.prepare("SELECT * FROM employee WHERE is_active = 1 ORDER BY id"));
+  if (!employees.length) throw new HTTPException(409, { message: "Master karyawan harus tersedia sebelum generate data tes." });
+  const [year, month] = period.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (count > lastDay) throw new HTTPException(400, { message: `Bulan ${period} hanya memiliki ${lastDay} hari.` });
+  const attendanceConfig = await attendanceRule(c.env);
+  let attendanceCreated = 0;
+  for (const employee of employees) {
+    for (let day = 1; day <= count; day += 1) {
+      const workDate = `${period}-${String(day).padStart(2, "0")}`;
+      const sunday = new Date(`${workDate}T00:00:00Z`).getUTCDay() === 0;
+      const doubleShift = day % 7 === employee.id % 7;
+      const overtime = day % 4 === employee.id % 4;
+      const absent = !sunday && day % 13 === employee.id % 13;
+      const row = calculateAttendanceRecord({
+        period,
+        employee_id: employee.id,
+        attendance_id_snapshot: employee.attendance_id || String(employee.id),
+        employee_name_snapshot: employee.name,
+        work_date: workDate,
+        timezone1_in: absent ? null : "08:00:00",
+        timezone1_out: absent ? null : overtime ? "17:15:00" : "16:00:00",
+        timezone2_in: doubleShift ? "14:00:00" : null,
+        timezone2_out: doubleShift ? "21:00:00" : null,
+        is_holiday: sunday ? 1 : 0,
+        status_note: "Data tes development",
+        needs_review: 0,
+        created_at: nowIso(),
+      }, attendanceConfig);
+      const values = pick(row as Record<string, unknown>, attendanceFields);
+      const fields = Object.keys(values);
+      await c.env.DB.prepare(`INSERT INTO attendancerecord (${fields.join(", ")}) VALUES (${fields.map(() => "?").join(", ")})`).bind(...Object.values(values)).run();
+      attendanceCreated += 1;
+    }
+  }
+  const rule = await payrollRule(c.env);
+  for (const employee of employees) {
+    const attendanceRows = await all<any>(c.env.DB.prepare("SELECT * FROM attendancerecord WHERE period = ? AND employee_id = ?").bind(period, employee.id));
+    const record = calculatePayrollRecord<any>({ bonus: 0, position_allowance: 0, other_deduction: 0 }, employee, rule, attendanceRows);
+    await c.env.DB.prepare(`INSERT INTO payrollrecord
+      (period, employee_id, status, base_salary, working_days, auto_double_shift_count, auto_sunday_count, double_shift_count, sunday_count,
+       double_shift_fee, sunday_fee, overtime_minutes, overtime_rate_per_minute, overtime_total, bonus, position_allowance,
+       bpjs_deduction, other_deduction, pph21, net_salary, payment_method, bank_name, account_name, account_number, needs_review, calculated_at)
+      VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 0, ?, ?, 'Transfer', ?, ?, ?, 0, ?)`)
+      .bind(period, employee.id, record.base_salary, record.working_days, record.auto_double_shift_count, record.auto_sunday_count,
+        record.double_shift_count, record.sunday_count, record.double_shift_fee, record.sunday_fee, record.overtime_minutes,
+        record.overtime_rate_per_minute, record.overtime_total, record.bpjs_deduction, record.pph21, record.net_salary,
+        record.bank_name, record.account_name, record.account_number, nowIso()).run();
+  }
+  return c.json({ period, attendance_created: attendanceCreated, payroll_created: employees.length });
 });
 
 payrollRoutes.post("/payroll-periods/:period/calculate", adminOnly, async (c) => {
