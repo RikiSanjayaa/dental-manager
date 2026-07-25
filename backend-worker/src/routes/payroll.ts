@@ -564,16 +564,25 @@ payrollRoutes.get("/payroll-periods/:period/overview", async (c) => {
   const period = c.req.param("period");
   const rows = await payrollSummaries(c.env, period);
   const payrollRows = rows.filter((row) => row.id != null);
-  const attendance = await all<Record<string, unknown>>(c.env.DB.prepare("SELECT * FROM attendancerecord WHERE period = ?").bind(period));
+  const attendance = await first<{ count: number; review_count: number; overtime_count: number }>(
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS count,
+              COALESCE(SUM(needs_review), 0) AS review_count,
+              COALESCE(SUM(CASE WHEN overtime_minutes > 0 THEN 1 ELSE 0 END), 0) AS overtime_count
+       FROM attendancerecord WHERE period = ?`
+    ).bind(period)
+  );
+  const attendanceCount = Number(attendance?.count ?? 0);
+  const attendanceReviewCount = Number(attendance?.review_count ?? 0);
   const payrollReviewCount = payrollRows.filter((row) => row.needs_review).length;
   return c.json({
     period,
-    status: payrollRows.length ? (payrollRows.every((row) => row.status === "locked") ? "locked" : "draft") : attendance.length ? "not_calculated" : "empty",
+    status: payrollRows.length ? (payrollRows.every((row) => row.status === "locked") ? "locked" : "draft") : attendanceCount ? "not_calculated" : "empty",
     employee_count: rows.length,
-    attendance_count: attendance.length,
-    attendance_review_count: attendance.filter((row) => row.needs_review).length,
+    attendance_count: attendanceCount,
+    attendance_review_count: attendanceReviewCount,
     payroll_review_count: payrollReviewCount,
-    overtime_record_count: attendance.filter((row) => Number(row.overtime_minutes || 0) > 0).length,
+    overtime_record_count: Number(attendance?.overtime_count ?? 0),
     total_base_salary: payrollRows.reduce((sum, row) => sum + Number(row.base_salary || 0), 0),
     total_gross_salary: payrollRows.reduce((sum, row) => sum + Number(row.gross_salary || 0), 0),
     total_overtime_minutes: payrollRows.reduce((sum, row) => sum + Number(row.overtime_minutes || 0), 0),
@@ -583,7 +592,7 @@ payrollRoutes.get("/payroll-periods/:period/overview", async (c) => {
     total_transfer: payrollRows.reduce((sum, row) => sum + Number(row.net_salary || 0), 0),
     total_gross: payrollRows.reduce((sum, row) => sum + Number(row.gross_salary || 0), 0),
     total_deductions: payrollRows.reduce((sum, row) => sum + Number(row.total_deduction || 0), 0),
-    needs_review_count: payrollReviewCount + attendance.filter((row) => row.needs_review).length,
+    needs_review_count: payrollReviewCount + attendanceReviewCount,
     record_count: payrollRows.length,
     summaries: rows,
   });

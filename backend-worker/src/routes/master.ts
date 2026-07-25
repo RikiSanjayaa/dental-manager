@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { adminOnly, currentUser, hashPassword, type AppVariables } from "../auth";
+import { adminOnly, hashPassword, type AppVariables } from "../auth";
 import { all, first, recordAudit } from "../db";
 import { isDevelopment, refreshDevelopmentDatabase } from "../dev-data";
 import { nowIso } from "../http";
@@ -236,7 +236,7 @@ async function storeImportPreview(c: { env: Env }, target: string, filename: str
 }
 
 for (const [path, config] of Object.entries(tables)) {
-  masterRoutes.get(`/${path}`, currentUser, async (c) => {
+  masterRoutes.get(`/${path}`, async (c) => {
     const user = c.get("user");
     if (path === "employees" && user.role === "operator") {
       if (!user.employee_id) return c.json([]);
@@ -246,7 +246,7 @@ for (const [path, config] of Object.entries(tables)) {
     return c.json(await listTable(c.env, config, c.req.query("search") ?? null));
   });
 
-  masterRoutes.post(`/${path}`, currentUser, adminOnly, async (c) => {
+  masterRoutes.post(`/${path}`, adminOnly, async (c) => {
     const body = await c.req.json<Record<string, unknown>>();
     const values = { ...pick(body, config.mutable), created_at: nowIso() };
     if (!Object.keys(values).length) throw new HTTPException(400, { message: "Payload kosong." });
@@ -259,7 +259,7 @@ for (const [path, config] of Object.entries(tables)) {
     return c.json(row, 201);
   });
 
-  masterRoutes.patch(`/${path}/:id`, currentUser, adminOnly, async (c) => {
+  masterRoutes.patch(`/${path}/:id`, adminOnly, async (c) => {
     const id = Number(c.req.param("id"));
     const body = await c.req.json<Record<string, unknown>>();
     const values = pick(body, config.mutable);
@@ -272,7 +272,7 @@ for (const [path, config] of Object.entries(tables)) {
     return c.json(row);
   });
 
-  masterRoutes.delete(`/${path}/:id`, currentUser, adminOnly, async (c) => {
+  masterRoutes.delete(`/${path}/:id`, adminOnly, async (c) => {
     const user = c.get("user");
     const id = Number(c.req.param("id"));
     const before = await getById(c as never, config.table, id);
@@ -294,7 +294,7 @@ for (const [path, config] of Object.entries(tables)) {
   });
 }
 
-masterRoutes.post("/:target/:id/activate", currentUser, adminOnly, async (c) => {
+masterRoutes.post("/:target/:id/activate", adminOnly, async (c) => {
   const target = c.req.param("target") ?? "";
   const config = tables[target];
   if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
@@ -303,7 +303,7 @@ masterRoutes.post("/:target/:id/activate", currentUser, adminOnly, async (c) => 
   return c.json({ target, id, is_active: true });
 });
 
-masterRoutes.post("/:target/:id/deactivate", currentUser, adminOnly, async (c) => {
+masterRoutes.post("/:target/:id/deactivate", adminOnly, async (c) => {
   const target = c.req.param("target") ?? "";
   const config = tables[target];
   if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
@@ -312,7 +312,7 @@ masterRoutes.post("/:target/:id/deactivate", currentUser, adminOnly, async (c) =
   return c.json({ target, id, is_active: false });
 });
 
-masterRoutes.delete("/:target/:id/permanent", currentUser, adminOnly, async (c) => {
+masterRoutes.delete("/:target/:id/permanent", adminOnly, async (c) => {
   const user = c.get("user");
   const target = c.req.param("target") ?? "";
   const config = tables[target];
@@ -340,7 +340,7 @@ masterRoutes.delete("/:target/:id/permanent", currentUser, adminOnly, async (c) 
   return c.json({ target, id, deleted: true });
 });
 
-masterRoutes.get("/users", currentUser, adminOnly, async (c) => {
+masterRoutes.get("/users", adminOnly, async (c) => {
   const rows = await all<Record<string, unknown>>(
     c.env.DB.prepare(
       `SELECT user.id, user.username, user.full_name, user.role, user.employee_id, employee.name AS employee_name, user.is_active
@@ -350,7 +350,7 @@ masterRoutes.get("/users", currentUser, adminOnly, async (c) => {
   return c.json(rows);
 });
 
-masterRoutes.post("/users", currentUser, adminOnly, async (c) => {
+masterRoutes.post("/users", adminOnly, async (c) => {
   const admin = c.get("user");
   const body = await c.req.json<Record<string, unknown>>();
   const password = String(body.password || "");
@@ -381,7 +381,7 @@ masterRoutes.post("/users", currentUser, adminOnly, async (c) => {
   return c.json(await getById(c as never, "user", Number(result.meta.last_row_id)), 201);
 });
 
-masterRoutes.patch("/users/:id", currentUser, adminOnly, async (c) => {
+masterRoutes.patch("/users/:id", adminOnly, async (c) => {
   const id = Number(c.req.param("id"));
   const body = await c.req.json<Record<string, unknown>>();
   const values = pick(body, ["full_name", "role", "employee_id", "is_active"]);
@@ -394,7 +394,7 @@ masterRoutes.patch("/users/:id", currentUser, adminOnly, async (c) => {
 // GET /settings/report-identity is registered publicly in index.ts (pre-auth) so the
 // login page can display the clinic name before sign-in.
 
-masterRoutes.patch("/settings/report-identity", currentUser, adminOnly, async (c) => {
+masterRoutes.patch("/settings/report-identity", adminOnly, async (c) => {
   const body = await c.req.json<{ clinic_name?: string }>();
   const clinicName = (body.clinic_name || "").trim();
   if (!clinicName) throw new HTTPException(400, { message: "Nama klinik wajib diisi." });
@@ -412,11 +412,11 @@ for (const [route, table] of [
   ["attendance-rules", "attendancerule"],
   ["doctor-fee-rules", "doctorfeerule"],
 ] as const) {
-  masterRoutes.get(`/settings/${route}`, currentUser, adminOnly, async (c) => {
+  masterRoutes.get(`/settings/${route}`, adminOnly, async (c) => {
     return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(`SELECT * FROM ${table} ORDER BY id`)));
   });
 
-  masterRoutes.post(`/settings/${route}`, currentUser, adminOnly, async (c) => {
+  masterRoutes.post(`/settings/${route}`, adminOnly, async (c) => {
     const body = await c.req.json<Record<string, unknown>>();
     if (body.is_default) await c.env.DB.prepare(`UPDATE ${table} SET is_default = 0`).run();
     const values = { ...body, created_at: nowIso() };
@@ -427,7 +427,7 @@ for (const [route, table] of [
     return c.json(await getById(c as never, table, Number(result.meta.last_row_id)), 201);
   });
 
-  masterRoutes.patch(`/settings/${route}/:id`, currentUser, adminOnly, async (c) => {
+  masterRoutes.patch(`/settings/${route}/:id`, adminOnly, async (c) => {
     const id = Number(c.req.param("id"));
     const body = await c.req.json<Record<string, unknown>>();
     if (body.is_default) await c.env.DB.prepare(`UPDATE ${table} SET is_default = 0`).run();
@@ -437,7 +437,7 @@ for (const [route, table] of [
   });
 }
 
-masterRoutes.get("/settings/attendance-holidays", currentUser, async (c) => {
+masterRoutes.get("/settings/attendance-holidays", async (c) => {
   const start = c.req.query("start");
   const end = c.req.query("end");
   let sql = "SELECT * FROM attendanceholiday";
@@ -457,7 +457,7 @@ masterRoutes.get("/settings/attendance-holidays", currentUser, async (c) => {
   return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(sql).bind(...params)));
 });
 
-masterRoutes.post("/settings/attendance-holidays", currentUser, adminOnly, async (c) => {
+masterRoutes.post("/settings/attendance-holidays", adminOnly, async (c) => {
   const body = await c.req.json<Record<string, unknown>>();
   if (!body.holiday_date) throw new HTTPException(400, { message: "Tanggal libur wajib diisi." });
   const existing = await first<Record<string, unknown>>(
@@ -475,7 +475,7 @@ masterRoutes.post("/settings/attendance-holidays", currentUser, adminOnly, async
   return c.json(await getById(c as never, "attendanceholiday", Number(result.meta.last_row_id)), 201);
 });
 
-masterRoutes.delete("/settings/attendance-holidays/:id", currentUser, adminOnly, async (c) => {
+masterRoutes.delete("/settings/attendance-holidays/:id", adminOnly, async (c) => {
   const user = c.get("user");
   const id = Number(c.req.param("id"));
   const before = await getById(c as never, "attendanceholiday", id);
@@ -494,7 +494,7 @@ masterRoutes.delete("/settings/attendance-holidays/:id", currentUser, adminOnly,
   return c.json({ status: "ok" });
 });
 
-masterRoutes.post("/master-data/import/:target/preview", currentUser, adminOnly, async (c) => {
+masterRoutes.post("/master-data/import/:target/preview", adminOnly, async (c) => {
   const target = c.req.param("target") ?? "";
   const user = c.get("user");
   const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
@@ -502,7 +502,7 @@ masterRoutes.post("/master-data/import/:target/preview", currentUser, adminOnly,
   return c.json(await storeImportPreview(c, target, filename, preview, user.id));
 });
 
-masterRoutes.post("/master-data/import/:target/:id/commit", currentUser, adminOnly, async (c) => {
+masterRoutes.post("/master-data/import/:target/:id/commit", adminOnly, async (c) => {
   const target = c.req.param("target") ?? "";
   const config = tables[target];
   if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
@@ -536,28 +536,28 @@ masterRoutes.post("/master-data/import/:target/:id/commit", currentUser, adminOn
   return c.json({ target, created, updated, invalid_rows: preview.invalid_rows });
 });
 
-masterRoutes.post("/master-data/import/treatments", currentUser, adminOnly, async (c) => {
+masterRoutes.post("/master-data/import/treatments", adminOnly, async (c) => {
   const user = c.get("user");
   const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
   const preview = await storeImportPreview(c, "treatments", filename, await buildMasterPreview(c.env, "treatments", rows), user.id);
   return c.redirect(`/master-data/import/treatments/${preview.import_id}/commit`, 307);
 });
 
-masterRoutes.post("/master-data/import/doctors", currentUser, adminOnly, async (c) => {
+masterRoutes.post("/master-data/import/doctors", adminOnly, async (c) => {
   const user = c.get("user");
   const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
   const preview = await storeImportPreview(c, "doctors", filename, await buildMasterPreview(c.env, "doctors", rows), user.id);
   return c.redirect(`/master-data/import/doctors/${preview.import_id}/commit`, 307);
 });
 
-masterRoutes.post("/master-data/import/employees", currentUser, adminOnly, async (c) => {
+masterRoutes.post("/master-data/import/employees", adminOnly, async (c) => {
   const user = c.get("user");
   const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
   const preview = await storeImportPreview(c, "employees", filename, await buildMasterPreview(c.env, "employees", rows), user.id);
   return c.redirect(`/master-data/import/employees/${preview.import_id}/commit`, 307);
 });
 
-masterRoutes.post("/dev/refresh-database", currentUser, adminOnly, async (c) => {
+masterRoutes.post("/dev/refresh-database", adminOnly, async (c) => {
   if (!isDevelopment(c.env)) {
     throw new HTTPException(403, { message: "Refresh database hanya tersedia di development." });
   }

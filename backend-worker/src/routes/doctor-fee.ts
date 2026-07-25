@@ -256,6 +256,11 @@ async function storeTransactionPreview(env: Env, filename: string, preview: Reco
 
 doctorFeeRoutes.get("/doctor-transactions", async (c) => {
   const period = c.req.query("period");
+  const doctorId = c.req.query("doctor_id");
+  const parsedDoctorId = doctorId ? Number(doctorId) : null;
+  if (parsedDoctorId !== null && !Number.isInteger(parsedDoctorId)) {
+    throw new HTTPException(400, { message: "doctor_id tidak valid." });
+  }
   let sql = `SELECT t.*, d.name AS doctor_name, tr.name AS treatment_name,
                     COALESCE(t.bhp_override, tr.bhp_cost, 0) AS bhp_amount,
                     COALESCE(t.price_override, tr.treatment_price, 0) AS price_amount
@@ -263,9 +268,16 @@ doctorFeeRoutes.get("/doctor-transactions", async (c) => {
              LEFT JOIN doctor d ON d.id = t.doctor_id
              LEFT JOIN treatment tr ON tr.id = t.treatment_id`;
   const params: unknown[] = [];
+  if (period || doctorId) {
+    sql += " WHERE ";
+  }
   if (period) {
-    sql += " WHERE t.period = ?";
+    sql += "t.period = ?";
     params.push(period);
+  }
+  if (doctorId) {
+    sql += period ? " AND t.doctor_id = ?" : "t.doctor_id = ?";
+    params.push(parsedDoctorId);
   }
   sql += " ORDER BY t.transaction_date DESC, t.id DESC";
   return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(sql).bind(...params)));

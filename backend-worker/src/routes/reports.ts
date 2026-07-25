@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { zipSync } from "fflate";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { adminOnly, currentUser, type AppVariables } from "../auth";
+import { adminOnly, type AppVariables } from "../auth";
 import { all, recordAudit } from "../db";
 import { nowIso } from "../http";
 import type { Env } from "../types";
@@ -44,13 +44,13 @@ export function templateResponse(templateNameParam: string) {
   return xlsxResponse(makeWorkbook([{ name: templateName, rows }]), `${templateName}.xlsx`);
 }
 
-reportsRoutes.get("/archive", currentUser, adminOnly, async (c) => {
+reportsRoutes.get("/archive", adminOnly, async (c) => {
   return c.json(
     await all<Record<string, unknown>>(c.env.DB.prepare("SELECT * FROM reportarchive ORDER BY created_at DESC"))
   );
 });
 
-reportsRoutes.get("/archive/:id/download", currentUser, adminOnly, async (c) => {
+reportsRoutes.get("/archive/:id/download", adminOnly, async (c) => {
   const row = await c.env.DB.prepare("SELECT * FROM reportarchive WHERE id = ?")
     .bind(Number(c.req.param("id")))
     .first<{ stored_path: string; filename: string; media_type: string }>();
@@ -65,7 +65,7 @@ reportsRoutes.get("/archive/:id/download", currentUser, adminOnly, async (c) => 
   });
 });
 
-reportsRoutes.delete("/archive/:id", currentUser, adminOnly, async (c) => {
+reportsRoutes.delete("/archive/:id", adminOnly, async (c) => {
   const user = c.get("user");
   const id = Number(c.req.param("id"));
   const row = await c.env.DB.prepare("SELECT * FROM reportarchive WHERE id = ?")
@@ -87,21 +87,21 @@ reportsRoutes.delete("/archive/:id", currentUser, adminOnly, async (c) => {
   return c.json({ status: "ok" });
 });
 
-reportsRoutes.get("/templates/:template_name", currentUser, async (c) => {
+reportsRoutes.get("/templates/:template_name", async (c) => {
   return templateResponse(c.req.param("template_name") ?? "");
 });
 
-reportsRoutes.get("/doctor-fees", currentUser, async (c) => {
+reportsRoutes.get("/doctor-fees", async (c) => {
   const file = await buildDoctorFeeReport(c.env, c.req.query("period") || currentPeriod(), c.req.query("format") || "xlsx");
   return archiveAndDownload(c, file);
 });
 
-reportsRoutes.get("/payroll", currentUser, async (c) => {
+reportsRoutes.get("/payroll", async (c) => {
   const file = await buildPayrollReport(c.env, c.req.query("period") || currentPeriod(), c.req.query("format") || "xlsx");
   return archiveAndDownload(c, file);
 });
 
-reportsRoutes.get("/payroll/:period/slips/:employee_id.pdf", currentUser, async (c) => {
+reportsRoutes.get("/payroll/:period/slips/:employee_id.pdf", async (c) => {
   const period = c.req.param("period") ?? currentPeriod();
   const employeeId = Number((c.req.param("employee_id") ?? c.req.path.split("/").pop() ?? "").replace(/\.pdf$/i, ""));
   const summary = (await payrollSummaries(c.env, period)).find((row) => Number(row.employee_id) === employeeId);
