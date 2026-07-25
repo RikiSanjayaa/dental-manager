@@ -177,8 +177,22 @@ const attendanceFields = [
   "created_at",
 ];
 
-async function buildAttendanceRows(env: Env, sourceRows: Record<string, unknown>[]) {
-  const rule = await attendanceRule(env);
+export async function buildAttendanceRows(env: Env, sourceRows: Record<string, unknown>[]) {
+  const workDates = sourceRows.map((source) => dateTextValue(source, ["work_date", "tanggal", "date"])).filter(Boolean);
+  const [rule, employees, holidays, existingRecords] = await Promise.all([
+    attendanceRule(env),
+    all<EmployeeRow & { attendance_id?: string }>(env.DB.prepare("SELECT * FROM employee ORDER BY id")),
+    all<{ holiday_date: string; is_holiday: number | boolean }>(env.DB.prepare("SELECT holiday_date, is_holiday FROM attendanceholiday ORDER BY id")),
+    workDates.length
+      ? all<{ id: number; employee_id: number; work_date: string }>(
+          env.DB.prepare("SELECT id, employee_id, work_date FROM attendancerecord WHERE work_date IN (SELECT value FROM json_each(?)) ORDER BY id").bind(JSON.stringify(workDates))
+        )
+      : Promise.resolve([]),
+  ]);
+  const employeesByAttendanceId = new Map(employees.filter((employee) => employee.attendance_id).map((employee) => [employee.attendance_id, employee]));
+  const employeesByName = new Map(employees.map((employee) => [employee.name.toLowerCase(), employee]));
+  const holidaysByDate = new Map(holidays.map((holiday) => [holiday.holiday_date, holiday]));
+  const existingByEmployeeAndDate = new Map(existingRecords.map((record) => [`${record.employee_id}:${record.work_date}`, record]));
   const rows = [];
   const errors = [];
   let valid = 0;
@@ -194,9 +208,9 @@ async function buildAttendanceRows(env: Env, sourceRows: Record<string, unknown>
     const attendanceId = textValue(source, ["attendance_id", "id_absensi", "pin"]);
     const employeeName = textValue(source, ["employee_name", "nama", "karyawan"]);
     const employee = attendanceId
-      ? await first<EmployeeRow & { attendance_id?: string }>(env.DB.prepare("SELECT * FROM employee WHERE attendance_id = ?").bind(attendanceId))
+      ? employeesByAttendanceId.get(attendanceId)
       : employeeName
-        ? await first<EmployeeRow & { attendance_id?: string }>(env.DB.prepare("SELECT * FROM employee WHERE lower(name) = lower(?)").bind(employeeName))
+        ? employeesByName.get(employeeName.toLowerCase())
         : null;
     const issues: string[] = [];
     if (!workDate) issues.push("Tanggal wajib diisi.");
@@ -209,12 +223,8 @@ async function buildAttendanceRows(env: Env, sourceRows: Record<string, unknown>
       issues.push("Duplikat di file.");
     }
     seen.add(key);
-    const holiday = workDate
-      ? await first<{ is_holiday: number | boolean }>(env.DB.prepare("SELECT is_holiday FROM attendanceholiday WHERE holiday_date = ?").bind(workDate))
-      : null;
-    const existing = employee && workDate
-      ? await first<{ id: number }>(env.DB.prepare("SELECT id FROM attendancerecord WHERE period = ? AND employee_id = ? AND work_date = ?").bind(period, employee.id, workDate))
-      : null;
+    const holiday = workDate ? holidaysByDate.get(workDate) : null;
+    const existing = employee && workDate ? existingByEmployeeAndDate.get(`${employee.id}:${workDate}`) : null;
     const record = calculateAttendanceRecord(
       {
         period,
@@ -243,7 +253,7 @@ async function buildAttendanceRows(env: Env, sourceRows: Record<string, unknown>
       if (status === "update") updateRows += 1;
       if (status === "new") newRows += 1;
     }
-    rows.push({ row: rowNumber, status, issues, ...record });
+    rows.push({ row: rowNumber, status, issues, existing_id: existing?.id ?? null, ...record });
   }
   return {
     kind: "attendance",
@@ -264,28 +274,30 @@ payrollRoutes.post("/attendance/import-preview", adminOnly, async (c) => {
 payrollRoutes.post("/attendance/import", adminOnly, async (c) => {
   const { rows } = await workbookRowsFromRequest(c.req.raw);
   const preview = await buildAttendanceRows(c.env, rows);
-  let created = 0;
-  let updated = 0;
-  for (const row of preview.rows.filter((item) => item.status !== "invalid")) {
-    const values = pick(row, attendanceFields);
-    const existing = row.employee_id
-      ? await first<{ id: number }>(
-          c.env.DB.prepare("SELECT id FROM attendancerecord WHERE period = ? AND employee_id = ? AND work_date = ?").bind(row.period, row.employee_id, row.work_date)
-        )
-      : null;
-    if (existing) {
-      await c.env.DB.prepare(`UPDATE attendancerecord SET ${assignmentSql(pick(values, attendanceFields.filter((field) => field !== "created_at")))} WHERE id = ?`)
-        .bind(...Object.values(pick(values, attendanceFields.filter((field) => field !== "created_at"))), existing.id)
-        .run();
-      updated += 1;
-    } else {
-      const fields = Object.keys(values);
-      await c.env.DB.prepare(`INSERT INTO attendancerecord (${fields.join(", ")}) VALUES (${fields.map(() => "?").join(", ")})`)
-        .bind(...Object.values(values))
-        .run();
-      created += 1;
-    }
+  const importRows = preview.rows.filter((item) => item.status !== "invalid");
+  const updateFields = attendanceFields.filter((field) => field !== "created_at");
+  const jsonRows = JSON.stringify(importRows);
+  const jsonValue = (field: string) => `json_extract(value, '$.${field}')`;
+  const statements = [];
+  if (importRows.some((row) => row.existing_id !== null)) {
+    statements.push(
+      c.env.DB.prepare(
+        `UPDATE attendancerecord SET ${updateFields.map((field) => `${field} = (SELECT ${jsonValue(field)} FROM json_each(?1) WHERE ${jsonValue("existing_id")} = attendancerecord.id)`).join(", ")}
+         WHERE id IN (SELECT ${jsonValue("existing_id")} FROM json_each(?1) WHERE ${jsonValue("existing_id")} IS NOT NULL)`
+      ).bind(jsonRows)
+    );
   }
+  if (importRows.some((row) => row.existing_id === null)) {
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO attendancerecord (${attendanceFields.join(", ")})
+         SELECT ${attendanceFields.map(jsonValue).join(", ")} FROM json_each(?1) WHERE ${jsonValue("existing_id")} IS NULL`
+      ).bind(jsonRows)
+    );
+  }
+  if (statements.length) await c.env.DB.batch(statements);
+  const created = importRows.filter((row) => row.existing_id === null).length;
+  const updated = importRows.length - created;
   return c.json({ created, updated, invalid_rows: preview.invalid_rows });
 });
 
