@@ -4,7 +4,7 @@ import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { Text } from "@cloudflare/kumo/components/text";
 import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, FileDown, FileUp, Plus } from "lucide-react";
+import { Building2, FileDown, FileSpreadsheet, FileUp, Plus } from "lucide-react";
 import { ChangeEvent, useMemo, useState } from "react";
 
 import { DoctorTable } from "../components/master-data/DoctorTable";
@@ -35,11 +35,12 @@ import {
   includesSearch,
   uniqueOptions,
 } from "../components/master-data/utils";
-import { api } from "../lib/api";
+import { api, downloadFile } from "../lib/api";
 
 export function MasterDataPage() {
   const queryClient = useQueryClient();
   const toasts = useKumoToastManager();
+  const [isExporting, setIsExporting] = useState(false);
 
   // ── Tab / filter state ──────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<MasterTarget>("treatments");
@@ -190,7 +191,7 @@ export function MasterDataPage() {
     onSuccess: async (result) => {
       toasts.add({
         title: `Import ${MASTER_META[result.target].label} selesai`,
-        description: `${result.created} dibuat, ${result.updated} diperbarui, ${result.invalid_rows} invalid.`,
+        description: `${result.created} dibuat, ${result.updated} diperbarui, ${result.unchanged} tetap, ${result.invalid_rows} invalid.`,
         variant: "success",
       });
       setImportSession((current) => ({ ...current, committed: result }));
@@ -359,11 +360,29 @@ export function MasterDataPage() {
     event.target.value = "";
   }
 
+  async function exportMasterData() {
+    setIsExporting(true);
+    try {
+      await downloadFile(
+        "/master-data/export.xlsx",
+        `master-data-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      );
+    } catch (error) {
+      toasts.add({
+        title: "Export master data gagal",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   // ── Derived values ─────────────────────────────────────────────────────────
   const meta = MASTER_META[activeTab];
   const preview = importSession.preview;
   const hasCommitReady = Boolean(
-    preview && preview.valid_rows > 0 && !importSession.committed,
+    preview && (preview.summary.new > 0 || preview.summary.update > 0) && !importSession.committed,
   );
   const selectedIds = Array.from(selectedRows[activeTab]);
 
@@ -371,14 +390,22 @@ export function MasterDataPage() {
   return (
     <>
       {/* Page header */}
-      <div className="flex items-start justify-between gap-4 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-4 py-4">
         <div>
           <h1 className="text-2xl font-semibold">Master Data</h1>
           <p className="mt-1 text-sm text-gray-600">
             Sumber kebenaran treatment, dokter, dan karyawan
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            variant="secondary"
+            icon={<FileSpreadsheet size={18} />}
+            loading={isExporting}
+            onClick={exportMasterData}
+          >
+            Export Excel
+          </Button>
           <LinkButton
             variant="secondary"
             href={`/api/reports/templates/${meta.template}.xlsx`}
@@ -534,7 +561,7 @@ export function MasterDataPage() {
       <Banner
         variant="secondary"
         icon={<Building2 size={20} />}
-        description="Master data hanya menerima template khusus per tab. File transaksi fee dokter dan absensi tetap diimport dari halaman masing-masing."
+        description="Workbook hasil export dapat diimport kembali dari tab yang sesuai. Jangan ubah kolom ID; kosongkan ID hanya untuk data baru."
       />
 
       {/* Dialogs */}

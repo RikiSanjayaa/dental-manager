@@ -42,7 +42,7 @@ export type Treatment = {
   is_active: boolean;
 };
 
-export type PreviewStatus = "new" | "update" | "invalid";
+export type PreviewStatus = "new" | "update" | "unchanged" | "invalid";
 
 export type PreviewRow = {
   row?: number;
@@ -76,6 +76,7 @@ export type ImportPreview = {
   summary: {
     new: number;
     update: number;
+    unchanged: number;
     invalid: number;
     duplicate_in_file: number;
     [key: string]: number | string | string[];
@@ -89,6 +90,7 @@ export type CommitResult = {
   target: MasterTarget;
   created: number;
   updated: number;
+  unchanged: number;
   invalid_rows: number;
 };
 

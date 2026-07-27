@@ -2,7 +2,7 @@ import * as XLSX from "xlsx";
 
 export type SheetRow = Record<string, unknown>;
 
-export async function workbookRowsFromRequest(request: Request): Promise<{ filename: string; rows: SheetRow[] }> {
+export async function workbookRowsFromRequest(request: Request, sheetName?: string): Promise<{ filename: string; rows: SheetRow[] }> {
   const form = await request.formData();
   const file = form.get("file") as unknown as { name?: string; arrayBuffer?: () => Promise<ArrayBuffer> } | string | null;
   if (!file || typeof file === "string" || typeof file.arrayBuffer !== "function") {
@@ -10,7 +10,11 @@ export async function workbookRowsFromRequest(request: Request): Promise<{ filen
   }
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const selectedName = sheetName
+    ? workbook.SheetNames.find((name) => normalizeKey(name) === normalizeKey(sheetName))
+    : workbook.SheetNames[0];
+  if (sheetName && !selectedName) throw new Error(`Sheet ${sheetName} tidak ditemukan.`);
+  const sheet = selectedName ? workbook.Sheets[selectedName] : undefined;
   if (!sheet) return { filename: file.name ?? "import.xlsx", rows: [] };
   return {
     filename: file.name ?? "import.xlsx",

@@ -5,7 +5,7 @@ import { all, first, recordAudit } from "../db";
 import { isDevelopment, refreshDevelopmentDatabase } from "../dev-data";
 import { nowIso } from "../http";
 import type { Env } from "../types";
-import { boolValue, numberValue, textValue, workbookRowsFromRequest } from "../xlsx";
+import { boolValue, makeWorkbook, numberValue, textValue, workbookRowsFromRequest, xlsxResponse } from "../xlsx";
 
 type TableConfig = {
   table: string;
@@ -90,6 +90,28 @@ async function listTable(env: Env, config: TableConfig, search: string | null) {
   return all<Record<string, unknown>>(env.DB.prepare(`SELECT * FROM ${config.table} ORDER BY id`));
 }
 
+export async function buildMasterDataWorkbook(env: Env) {
+  const entries = await Promise.all(
+    Object.entries(tables).map(async ([target, config]) => {
+      const rows = await listTable(env, config, null);
+      return {
+        target,
+        rows: rows.map((row) => ({ id: row.id, ...pick(row, config.mutable) })),
+      };
+    })
+  );
+  return {
+    bytes: makeWorkbook(
+      entries.map(({ target, rows }) => ({
+        name: target[0].toUpperCase() + target.slice(1),
+        rows,
+        freeze: "A2",
+      }))
+    ),
+    counts: Object.fromEntries(entries.map(({ target, rows }) => [target, rows.length])),
+  };
+}
+
 function targetPayload(target: string, row: Record<string, unknown>) {
   if (target === "treatments") {
     return {
@@ -139,6 +161,20 @@ function identityWhere(target: string, payload: Record<string, unknown>) {
   return { sql: "name = ?", value: payload.name };
 }
 
+function sourceId(source: Record<string, unknown>): number | null {
+  const raw = textValue(source, ["id"]);
+  if (raw == null || raw === "") return null;
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : Number.NaN;
+}
+
+function sameMasterValue(existing: unknown, incoming: unknown): boolean {
+  if ((existing == null || existing === "") && (incoming == null || incoming === "")) return true;
+  if (typeof existing === "boolean") return existing === (incoming === true || incoming === 1 || incoming === "1");
+  if (typeof existing === "number" || typeof incoming === "number") return Number(existing) === Number(incoming);
+  return String(existing) === String(incoming);
+}
+
 async function masterReferenceCount(env: Env, target: string, id: number): Promise<number> {
   const checks: Record<string, Array<{ table: string; column: string }>> = {
     treatments: [{ table: "doctortransaction", column: "treatment_id" }],
@@ -162,9 +198,17 @@ async function masterReferenceCount(env: Env, target: string, id: number): Promi
   return total;
 }
 
-async function buildMasterPreview(env: Env, target: string, rows: Record<string, unknown>[]) {
+export async function buildMasterPreview(env: Env, target: string, rows: Record<string, unknown>[]) {
   const config = tables[target];
   if (!config) throw new HTTPException(404, { message: "Target master data tidak dikenal." });
+  const existingRows = await listTable(env, config, null);
+  const existingById = new Map(existingRows.map((row) => [Number(row.id), row]));
+  const existingByIdentity = new Map(
+    existingRows.map((row) => {
+      const identity = identityWhere(target, row);
+      return [`${identity.sql}:${String(identity.value || "").toLowerCase()}`, row] as const;
+    })
+  );
   const seen = new Set<string>();
   const previewRows = [];
   const errors = [];
@@ -173,36 +217,46 @@ async function buildMasterPreview(env: Env, target: string, rows: Record<string,
   let duplicate = 0;
   let newRows = 0;
   let updateRows = 0;
+  let unchangedRows = 0;
   for (const [index, source] of rows.entries()) {
     const rowNumber = index + 2;
-    const payload = targetPayload(target, source);
+    const payload: Record<string, unknown> = targetPayload(target, source);
+    const id = sourceId(source);
     const issues: string[] = [];
     if (!payload.name) issues.push("Nama wajib diisi.");
     const identity = identityWhere(target, payload);
-    const identityKey = `${identity.sql}:${String(identity.value || "").toLowerCase()}`;
+    if (Number.isNaN(id)) issues.push("ID harus berupa angka bulat positif.");
+    const identityKey = id ? `id:${id}` : `${identity.sql}:${String(identity.value || "").toLowerCase()}`;
     if (seen.has(identityKey)) {
       duplicate += 1;
       issues.push("Duplikat di file.");
     }
     seen.add(identityKey);
-    const existing = issues.length ? null : await first<Record<string, unknown>>(env.DB.prepare(`SELECT id FROM ${config.table} WHERE ${identity.sql}`).bind(identity.value));
-    const status = issues.length ? "invalid" : existing ? "update" : "new";
+    const existing = issues.length
+      ? null
+      : id
+        ? existingById.get(id)
+        : existingByIdentity.get(`${identity.sql}:${String(identity.value || "").toLowerCase()}`);
+    if (id && !existing) issues.push(`ID ${id} tidak ditemukan.`);
+    const unchanged = existing && config.mutable.every((field) => sameMasterValue(existing[field], payload[field]));
+    const status = issues.length ? "invalid" : unchanged ? "unchanged" : existing ? "update" : "new";
     if (status === "invalid") {
       invalid += 1;
       errors.push({ row: rowNumber, field: "name", message: issues.join(" ") });
     } else {
       valid += 1;
       if (status === "update") updateRows += 1;
-      else newRows += 1;
+      else if (status === "new") newRows += 1;
+      else unchangedRows += 1;
     }
-    previewRows.push({ row: rowNumber, status, issues, ...payload });
+    previewRows.push({ row: rowNumber, id: existing?.id ?? id, status, issues, ...payload });
   }
   return {
     import_id: 0,
     target,
     valid_rows: valid,
     invalid_rows: invalid,
-    summary: { new: newRows, update: updateRows, invalid, duplicate_in_file: duplicate },
+    summary: { new: newRows, update: updateRows, unchanged: unchangedRows, invalid, duplicate_in_file: duplicate },
     rows: previewRows,
     warnings: [],
     errors,
@@ -293,6 +347,21 @@ for (const [path, config] of Object.entries(tables)) {
     return c.json(row);
   });
 }
+
+masterRoutes.get("/master-data/export.xlsx", adminOnly, async (c) => {
+  const user = c.get("user");
+  const { bytes, counts } = await buildMasterDataWorkbook(c.env);
+  await recordAudit(c.env, {
+    actor_id: user.id,
+    actor_username: user.username,
+    actor_name: user.full_name,
+    action: "export",
+    entity_type: "master_data",
+    description: "Export master data ke XLSX.",
+    metadata: counts,
+  });
+  return xlsxResponse(bytes, `master-data-${new Date().toISOString().slice(0, 10)}.xlsx`);
+});
 
 masterRoutes.post("/:target/:id/activate", adminOnly, async (c) => {
   const target = c.req.param("target") ?? "";
@@ -497,7 +566,7 @@ masterRoutes.delete("/settings/attendance-holidays/:id", adminOnly, async (c) =>
 masterRoutes.post("/master-data/import/:target/preview", adminOnly, async (c) => {
   const target = c.req.param("target") ?? "";
   const user = c.get("user");
-  const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
+  const { filename, rows } = await workbookRowsFromRequest(c.req.raw, target);
   const preview = await buildMasterPreview(c.env, target, rows);
   return c.json(await storeImportPreview(c, target, filename, preview, user.id));
 });
@@ -510,49 +579,47 @@ masterRoutes.post("/master-data/import/:target/:id/commit", adminOnly, async (c)
   const stored = await first<{ preview_json: string }>(c.env.DB.prepare("SELECT preview_json FROM importfile WHERE id = ? AND kind = ?").bind(importId, `master:${target}`));
   if (!stored) throw new HTTPException(404, { message: "Preview import tidak ditemukan." });
   const preview = JSON.parse(stored.preview_json) as { rows: Array<Record<string, unknown> & { status: string }>; invalid_rows: number };
-  let created = 0;
-  let updated = 0;
-  for (const row of preview.rows.filter((item) => item.status !== "invalid")) {
-    const payload = pick(row, config.mutable);
-    const identity = identityWhere(target, payload);
-    const existing = await first<{ id: number }>(c.env.DB.prepare(`SELECT id FROM ${config.table} WHERE ${identity.sql}`).bind(identity.value));
-    if (existing) {
-      await c.env.DB.prepare(`UPDATE ${config.table} SET ${assignmentSql(payload)} WHERE id = ?`)
-        .bind(...Object.values(payload), existing.id)
-        .run();
-      updated += 1;
-    } else {
-      const values = { ...payload, created_at: nowIso() };
-      const fields = Object.keys(values);
-      await c.env.DB.prepare(`INSERT INTO ${config.table} (${fields.join(", ")}) VALUES (${fields.map(() => "?").join(", ")})`)
-        .bind(...Object.values(values))
-        .run();
-      created += 1;
-    }
+  const updates = preview.rows.filter((item) => item.status === "update");
+  const inserts = preview.rows.filter((item) => item.status === "new");
+  if (updates.length) {
+    const rowsJson = JSON.stringify(updates.map((row) => ({ id: row.id, ...pick(row, config.mutable) })));
+    await c.env.DB.prepare(
+      `INSERT INTO ${config.table} (id, ${config.mutable.join(", ")}, created_at)
+       SELECT json_extract(value, '$.id'), ${config.mutable.map((field) => `json_extract(value, '$.${field}')`).join(", ")}, ?
+       FROM json_each(?) WHERE true
+       ON CONFLICT(id) DO UPDATE SET ${config.mutable.map((field) => `${field} = excluded.${field}`).join(", ")}`
+    ).bind(nowIso(), rowsJson).run();
+  }
+  if (inserts.length) {
+    const rowsJson = JSON.stringify(inserts.map((row) => pick(row, config.mutable)));
+    await c.env.DB.prepare(
+      `INSERT INTO ${config.table} (${config.mutable.join(", ")}, created_at)
+       SELECT ${config.mutable.map((field) => `json_extract(value, '$.${field}')`).join(", ")}, ? FROM json_each(?)`
+    ).bind(nowIso(), rowsJson).run();
   }
   await c.env.DB.prepare("UPDATE importfile SET status = 'committed', committed_at = ? WHERE id = ?")
     .bind(nowIso(), importId)
     .run();
-  return c.json({ target, created, updated, invalid_rows: preview.invalid_rows });
+  return c.json({ target, created: inserts.length, updated: updates.length, unchanged: preview.rows.filter((row) => row.status === "unchanged").length, invalid_rows: preview.invalid_rows });
 });
 
 masterRoutes.post("/master-data/import/treatments", adminOnly, async (c) => {
   const user = c.get("user");
-  const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
+  const { filename, rows } = await workbookRowsFromRequest(c.req.raw, "treatments");
   const preview = await storeImportPreview(c, "treatments", filename, await buildMasterPreview(c.env, "treatments", rows), user.id);
   return c.redirect(`/master-data/import/treatments/${preview.import_id}/commit`, 307);
 });
 
 masterRoutes.post("/master-data/import/doctors", adminOnly, async (c) => {
   const user = c.get("user");
-  const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
+  const { filename, rows } = await workbookRowsFromRequest(c.req.raw, "doctors");
   const preview = await storeImportPreview(c, "doctors", filename, await buildMasterPreview(c.env, "doctors", rows), user.id);
   return c.redirect(`/master-data/import/doctors/${preview.import_id}/commit`, 307);
 });
 
 masterRoutes.post("/master-data/import/employees", adminOnly, async (c) => {
   const user = c.get("user");
-  const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
+  const { filename, rows } = await workbookRowsFromRequest(c.req.raw, "employees");
   const preview = await storeImportPreview(c, "employees", filename, await buildMasterPreview(c.env, "employees", rows), user.id);
   return c.redirect(`/master-data/import/employees/${preview.import_id}/commit`, 307);
 });

@@ -22,6 +22,7 @@ import { previewDetail, previewIdentity } from "./utils";
 function statusBadge(status: PreviewStatus) {
   if (status === "new") return <Badge variant="success">baru</Badge>;
   if (status === "update") return <Badge variant="secondary">update</Badge>;
+  if (status === "unchanged") return <Badge variant="secondary">tetap</Badge>;
   return <Badge variant="error">invalid</Badge>;
 }
 
@@ -130,7 +131,7 @@ export function ImportPreviewDialog({
                   <Banner
                     variant="default"
                     icon={<CheckCircle2 size={20} />}
-                    description={`Import selesai: ${session.committed.created} dibuat, ${session.committed.updated} diperbarui.`}
+                    description={`Import selesai: ${session.committed.created} dibuat, ${session.committed.updated} diperbarui, ${session.committed.unchanged} tetap.`}
                   />
                 ) : null}
 
@@ -151,6 +152,9 @@ export function ImportPreviewDialog({
                   </div>
                   <div className="flex-1">
                     {summaryMetric("Update", preview.summary.update ?? 0, "warning")}
+                  </div>
+                  <div className="flex-1">
+                    {summaryMetric("Tetap", preview.summary.unchanged ?? 0)}
                   </div>
                   <div className="flex-1">
                     {summaryMetric(
