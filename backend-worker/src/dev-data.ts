@@ -10,7 +10,7 @@ const DATA_TABLES = [
 ] as const;
 
 export function isDevelopment(env: Env): boolean {
-  return ["dev", "development", "local", "test"].includes((env.APP_ENV || "development").toLowerCase());
+  return ["dev", "development", "local", "test"].includes((env.APP_ENV || "production").toLowerCase());
 }
 
 export async function seedDevMasterData(env: Env): Promise<void> {
