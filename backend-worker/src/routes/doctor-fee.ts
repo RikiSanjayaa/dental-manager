@@ -33,6 +33,7 @@ type Transaction = {
   needs_review: number | boolean;
   review_note: string | null;
 };
+type PeriodTransaction = Transaction & Treatment & Doctor;
 
 const trxFields = [
   "period",
@@ -106,9 +107,10 @@ async function hydrateAndCalculate(env: Env, body: Record<string, unknown>): Pro
 }
 
 async function rowsForPeriod(env: Env, period: string) {
-  return all<Transaction>(
+  return all<PeriodTransaction>(
     env.DB.prepare(
-      `SELECT t.*, d.name AS doctor_name, tr.name AS treatment_name,
+      `SELECT t.*, d.name AS doctor_name, d.normal_fee_rate, d.tax_rate,
+              tr.name AS treatment_name, tr.bhp_cost, tr.treatment_price,
               COALESCE(t.bhp_override, tr.bhp_cost, 0) AS bhp_amount,
               COALESCE(t.price_override, tr.treatment_price, 0) AS price_amount
        FROM doctortransaction t
@@ -118,6 +120,10 @@ async function rowsForPeriod(env: Env, period: string) {
        ORDER BY t.transaction_date DESC, t.id DESC`
     ).bind(period)
   );
+}
+
+export function recalculatePeriodTransactions(rows: PeriodTransaction[], rule: Rule) {
+  return rows.map((row) => calculateDoctorTransaction(row, row, row, rule));
 }
 
 async function doctorSummaries(env: Env, period: string) {
@@ -447,10 +453,23 @@ doctorFeeRoutes.post("/doctor-transactions/generate-random", adminOnly, async (c
 doctorFeeRoutes.post("/doctor-periods/:period/calculate", adminOnly, async (c) => {
   const period = c.req.param("period") ?? "";
   const rule = await defaultRule(c.env);
-  const transactions = await rowsForPeriod(c.env, period);
-  await c.env.DB.prepare("DELETE FROM doctorperiodsummary WHERE period = ?").bind(period).run();
+  const transactions = recalculatePeriodTransactions(await rowsForPeriod(c.env, period), rule);
   const byDoctor = new Map<number, Transaction[]>();
   for (const row of transactions) byDoctor.set(row.doctor_id, [...(byDoctor.get(row.doctor_id) || []), row]);
+  const calculatedAt = nowIso();
+  const amounts = JSON.stringify(
+    transactions.map(({ id, service_amount, doctor_fee_amount, total_bill_amount }) => ({ id, service_amount, doctor_fee_amount, total_bill_amount }))
+  );
+  const statements = [
+    c.env.DB.prepare(
+      `UPDATE doctortransaction SET
+         service_amount = (SELECT json_extract(value, '$.service_amount') FROM json_each(?1) WHERE json_extract(value, '$.id') = doctortransaction.id),
+         doctor_fee_amount = (SELECT json_extract(value, '$.doctor_fee_amount') FROM json_each(?1) WHERE json_extract(value, '$.id') = doctortransaction.id),
+         total_bill_amount = (SELECT json_extract(value, '$.total_bill_amount') FROM json_each(?1) WHERE json_extract(value, '$.id') = doctortransaction.id)
+       WHERE id IN (SELECT json_extract(value, '$.id') FROM json_each(?1))`
+    ).bind(amounts),
+    c.env.DB.prepare("DELETE FROM doctorperiodsummary WHERE period = ?").bind(period),
+  ];
   for (const [doctorId, rows] of byDoctor) {
     const doctor = await first<Doctor>(c.env.DB.prepare("SELECT * FROM doctor WHERE id = ?").bind(doctorId));
     const treatmentFee = rows.filter((row) => !row.special_fee_amount).reduce((sum, row) => sum + Number(row.doctor_fee_amount || 0), 0);
@@ -458,14 +477,13 @@ doctorFeeRoutes.post("/doctor-periods/:period/calculate", adminOnly, async (c) =
     const totalBill = rows.reduce((sum, row) => sum + Number(row.total_bill_amount || 0), 0);
     const totalFee = treatmentFee + orthoFee;
     const tax = totalFee * (doctor?.tax_rate ?? rule.tax_rate);
-    await c.env.DB.prepare(
+    statements.push(c.env.DB.prepare(
       `INSERT INTO doctorperiodsummary
        (period, doctor_id, status, treatment_fee_total, ortho_fee_total, total_fee, total_bill, deduction, tax, transfer_amount, calculated_at)
        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(period, doctorId, Math.round(treatmentFee), Math.round(orthoFee), Math.round(totalFee), Math.round(totalBill), Math.round(rule.default_deduction), Math.round(tax), Math.round(totalFee - rule.default_deduction - tax), nowIso())
-      .run();
+    ).bind(period, doctorId, Math.round(treatmentFee), Math.round(orthoFee), Math.round(totalFee), Math.round(totalBill), Math.round(rule.default_deduction), Math.round(tax), Math.round(totalFee - rule.default_deduction - tax), calculatedAt));
   }
+  await c.env.DB.batch(statements);
   return c.json(await all(c.env.DB.prepare("SELECT * FROM doctorperiodsummary WHERE period = ?").bind(period)));
 });
 

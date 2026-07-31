@@ -8,6 +8,7 @@ import {
   type DoctorTransactionShape,
   type PayrollRecordShape,
 } from "../src/calculations";
+import { recalculatePeriodTransactions } from "../src/routes/doctor-fee";
 
 const attendanceRule = {
   timezone1_start: "08:00:00",
@@ -35,6 +36,19 @@ describe("calculation parity helpers", () => {
     expect(row.service_amount).toBe(150000);
     expect(row.doctor_fee_amount).toBe(90000);
     expect(row.total_bill_amount).toBe(190000);
+  });
+
+  it("recalculates stale transaction amounts from current treatment BHP without replacing overrides", () => {
+    const transaction = { id: 1, period: "2026-06", transaction_date: "2026-06-01", doctor_id: 1, patient_name: "Pasien", treatment_id: 1, treatment_name_snapshot: "Scaling", qty: 1, discount_amount: 0, bhp_override: null, price_override: null, special_fee_amount: 0, fee_rate: null, service_amount: 100000, doctor_fee_amount: 60000, total_bill_amount: 100000, needs_review: 0, review_note: null, bhp_cost: 25000, treatment_price: 100000, normal_fee_rate: 0.6, tax_rate: 0.025, name: "Scaling" };
+    const [row, overridden] = recalculatePeriodTransactions(
+      [transaction, { ...transaction, id: 2, bhp_override: 10000 }],
+      { normal_fee_rate: 0.5, default_deduction: 0, tax_rate: 0.025 }
+    );
+
+    expect(row.service_amount).toBe(75000);
+    expect(row.doctor_fee_amount).toBe(45000);
+    expect(overridden.service_amount).toBe(90000);
+    expect(overridden.doctor_fee_amount).toBe(54000);
   });
 
   it("calculates absence when no attendance exists on a work day", () => {
