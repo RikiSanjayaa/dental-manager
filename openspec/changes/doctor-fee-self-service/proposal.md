@@ -2,37 +2,36 @@
 
 ## Why
 
-Klinik (Devema Clinic) currently has only two login roles — `admin` and `operator` — and doctors are just master-data records. Doctors have no way to log in and see their own fee (fee dokter) breakdowns, and every fee/payroll figure in the system is only visible through admin screens or by asking admin for a report. The client wants each doctor to have their own account that shows **their own** doctor fees per period (read-only self-service), mirroring the existing "Payroll Saya" experience operators already have.
+Klinik (Devema Clinic) needs doctors to log in and see **their own** fee dokter data — mirroring the existing "Payroll Saya" self-service operators already have. Phase 1 (accounts, fee view, exports) is implemented; this change also covers the doctor dashboard/audit surface and makes the doctor self-service UI visually consistent with the payroll self-service page, based on client review.
 
-A separate client request — restricting what employees see about their paycheck totals — needs more business context and is explicitly **out of scope** here (tracked for a later change).
+A separate client request — restricting what employees see about paycheck totals — needs business context and is out of scope.
 
 ## What Changes
 
-- **New `doctor` role** in the backend worker and frontend, alongside `admin` and `operator`.
-- **Link users to doctors**: `user.doctor_id` column (nullable, unique among non-null) pointing to master `doctor`; admin can provision doctor accounts in User Management.
-- **Login/identity**: `GET /auth/me` and user lists expose `doctor_id`/`doctor_name`; role badge/label shows "Dokter".
-- **Doctor self-service fee view**: new read-only endpoints under `/me/doctor-fees*` that return only the logged-in doctor's data:
-  - periods where the doctor has transactions and/or a period summary, with status
-  - one period's summary (fee totals, deduction, tax, transfer, billing, review/lock status) and its transaction details
-- **Doctor fee export (own)**: doctors can export their own single-doctor fee recap for a period as XLSX or PDF (`/me/doctor-fees/:period/export?format=pdf|xlsx`); the aggregate/zip reports stay admin/operator-only.
-- **Doctor treatment history (own)**: doctors can browse their own treatment history read-only (own transactions only, optional period filter); creating/editing/importing/deleting/reviewing transactions stays staff-only.
-- **Data isolation (security)**: role `doctor` is denied the cross-doctor management endpoints (`/doctor-transactions` write/import paths, `/doctor-periods/:period/summary|overview`, aggregate doctor-fee report exports). Operators/admins keep today's behavior. Doctor pay records (salary-type info) stay invisible to doctors (they have no `employee_id`; `/me/payroll*` returns 403 for doctors).
-- **Frontend routing/menu**: doctors land on a "Fee Dokter Saya" page and get a read-only "Riwayat Perawatan Saya" page; the operator/admin-only menu items and pages are hidden/guarded per-role; operator-only pages no longer match doctors via the old "not admin" logic.
+- **New `doctor` role** + `user.doctor_id` link (one account per doctor), admin provisioning in User Management, identity payload includes doctor info; doctor accounts blocked from payroll self-service and all cross-doctor fee/payroll management endpoints (403); account deactivation is the revocation control.
+- **Doctor Dashboard (home)**: mirrors the operator/admin dashboard pattern but scoped to the logged-in doctor's own data:
+  - KPI cards for the selected period (total transfer / total fee / transactions / review count)
+  - monthly income comparison chart (current period vs previous period, own data only), same style as the admin dashboard chart
+  - recent own transactions and recent own audit entries
+- **Fee Dokter Saya recap page**: restyled to match the "Payroll Saya" layout — prominent "Total transfer" amount, component amounts as compact cards in a responsive grid (fee perawatan, fee ortho/behel, tagihan, potongan, pajak), payment-information card with PDF/XLSX export buttons, and the period's own transactions table ("Transaksi Saya") below.
+- **Audit Akun for doctors**: doctors can open Audit Akun (self-only audit log, `/audit-logs/me`) to see their own login/export activity.
+- **Doctor navigation** becomes: Dashboard (home), Fee Dokter Saya, Audit Akun.
+- **Removed (client review, redundancy):** dedicated "Riwayat Perawatan Saya" page and its `GET /me/doctor-transactions` endpoint — the fee page's "Transaksi Saya" table and dashboard recent-transactions already cover viewing own treatment rows.
+- **Data isolation (kept):** role `doctor` is denied cross-doctor management endpoints (`/doctor-transactions` write/import paths and staff GETs, `/doctor-periods/:period/summary|overview`, aggregate/zip doctor-fee exports, payroll endpoints). Admin/operator behavior unchanged.
 
 ### Out of scope (explicit)
 
-- **BREAKING (none intended for admin/operator)**: Existing admin/operator screens and API shapes are unchanged.
-- FastAPI parity backend (`backend/`) is not touched — it is the legacy reference; production runs the Cloudflare Worker backend (`backend-worker/`) plus this frontend.
+- FastAPI parity backend (`backend/`) — legacy reference, not deployed.
 - Employee paycheck-visibility changes (client question, awaiting business context).
-- Doctor editing/recording treatment history or approving reviews (view own history only), doctor dashboards beyond the self-service pages, doctor access to the archive/`Laporan` admin module.
+- Doctor editing/recording treatment history or approving reviews.
+- Doctor PDF/XLSX beyond own fee recap (aggregate staff exports stay admin/operator).
 
 ## Capabilities
 
 ### New Capabilities
 
-- `identity/doctor-accounts`: doctor role, user↔doctor link, provisioning, identity payloads, role gating primitives.
-- `doctor-fees/self-service`: read-only per-doctor fee views (summary + transactions), single-doctor XLSX/PDF export, and the data-isolation rules that keep a doctor's view limited to their own records.
-- `treatment-history/self-service`: read-only browsing of a doctor's own treatment transactions with the same isolation guarantees.
+- `identity/doctor-accounts`: doctor role, user↔doctor link, provisioning, identity payloads, role gating primitives, doctor access to own audit log.
+- `doctor-fees/self-service`: doctor dashboard (own income overview + month-over-month comparison), read-only per-doctor fee views (summary + transactions), single-doctor XLSX/PDF export, payroll-consistent recap layout, and the data-isolation rules that keep a doctor's view limited to their own records.
 
 ### Modified Capabilities
 
@@ -40,22 +39,22 @@ A separate client request — restricting what employees see about their paychec
 
 ## Impact
 
-- **DB (D1 migration)** — `backend-worker/migrations/0004_*.sql`: `ALTER TABLE user ADD COLUMN doctor_id INTEGER REFERENCES doctor(id)` + partial unique index on `doctor_id`.
+- **DB (D1 migration)** — `backend-worker/migrations/0004_doctor_user_accounts.sql` (already added): `user.doctor_id` FK + partial unique index.
 - **Worker backend** (`backend-worker/src/`):
-  - `types.ts` — `UserRole` + `User.doctor_id`
-  - `auth.ts` — role helpers (`adminOnly` stays; add `staffOnly` = admin|operator, doctor link helper)
-  - `routes/auth.ts` — `/auth/me` includes doctor info
-  - `routes/master.ts` — `/users` list/create/update accept `doctor_id` with validation; sanitized user responses (never return `hashed_password`)
-  - `routes/doctor-fee.ts` — staff guard on management endpoints; new `/me/doctor-fees` + `/me/doctor-fees/:period` + `/me/doctor-fees/:period/export`
-  - `routes/reports.ts` — aggregate doctor-fee/payroll export endpoints staff-guarded; `buildDoctorFeeReport` accepts optional single-doctor filter for the doctor export path
-  - `routes/payroll.ts` — `/me/*` endpoints return 403 (not 409) for doctor role
-  - `dev-data.ts` / seeds — demo doctor account(s) for local QA
+  - `types.ts`, `auth.ts`, `routes/auth.ts` — doctor role, `staffOnly`/`requireLinkedDoctor`, `/auth/me` doctor info
+  - `routes/master.ts` — `/users` accepts `doctor_id`, validated; safe projections (no password hash)
+  - `routes/doctor-fee.ts` — staff guards; `GET /me/doctor-fees`, `GET /me/doctor-fees/:period`, `GET /me/doctor-fees/:period/export`; **new** `GET /me/doctor-dashboard`; **removes** `GET /me/doctor-transactions`
+  - `routes/reports.ts` — `buildDoctorFeeReport(env, period, format, doctorId?)`; aggregate exports staff-only
+  - `routes/payroll.ts`/`routes/dashboard.ts` — doctor gets 403 on payroll/dashboard staff endpoints
+  - `dev-data.ts` — dev seed doctor account + fixed table delete order (user before doctor)
+  - tests updated for removed/added endpoints
 - **Frontend** (`frontend/src/`):
-  - `lib/api.ts`, `lib/auth.ts` — role type, helpers, labels
-  - `App.tsx` — doctor home/route guard; operator/staff guards corrected
-  - `components/AppShell.tsx` — per-role nav (allowlist refactor)
-  - `pages/UsersPage.tsx` — Dokter role + "Dokter Terhubung" picker/column
-  - new `pages/MyDoctorFeesPage.tsx` — self-service fee page (period picker, summary cards, own-transaction table, own export buttons)
-  - new `pages/MyTreatmentHistoryPage.tsx` — read-only own treatment history (own transactions, period filter)
-- **Tests**: `backend-worker/test/` unit/route tests for new authorization + `/me/doctor-fees` + doctor history/export behavior; frontend typecheck.
-- **Deploy**: branch-only for now; Cloudflare Worker/D1 migration + Pages deploy happen only when merged to `main` (CI). Local QA via `wrangler d1 migrations apply --local` + `npm run dev` compose stack.
+  - `lib/api.ts`, `lib/auth.ts` — doctor role/helpers/labels
+  - `App.tsx`, `AppShell.tsx` — per-role nav allowlists; doctor nav = Dashboard, Fee Dokter Saya, Audit Akun; doctor home renders Dashboard
+  - `pages/MyDoctorFeesPage.tsx` — restyled to payroll-slip layout
+  - `pages/DoctorDashboardPage.tsx` — **new** doctor dashboard
+  - `pages/AuditLogsPage.tsx` — reused for doctor self-only audit
+  - `pages/UsersPage.tsx` — Dokter role + doctor picker
+  - **removes** `pages/MyTreatmentHistoryPage.tsx` + route
+- **Tests**: `backend-worker/test/` guard/self-service/dashboard coverage; frontend typecheck/build.
+- **Deploy**: branch-only until review; Cloudflare Worker/D1 + Pages deploy happen on merge to `main`. QA runs locally (docker `dental-qa` or host `npm run dev`).

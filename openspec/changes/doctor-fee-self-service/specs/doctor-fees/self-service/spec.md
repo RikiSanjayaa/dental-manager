@@ -79,6 +79,34 @@ The system SHALL expose `GET /me/doctor-fees/:period/export?format=pdf|xlsx` tha
 - **WHEN** a doctor attempts to download the aggregate `/reports/doctor-fees` export or any ZIP/per-doctor staff export
 - **THEN** the system responds 403
 
+### Requirement: Doctor dashboard shows own income overview and month comparison
+
+The system SHALL expose `GET /me/doctor-dashboard` (doctor-only, optional `period` in `YYYY-MM`, defaulting to the doctor's latest period with data) returning only the logged-in doctor's data: a summary of the selected period (status, fee totals, transfer amount, billing, transaction and review counts), the same summary shape for the immediately previous calendar month when the doctor has data there (or null), a small list of recent own transactions, and a small list of the doctor's own recent audit entries. This data feeds the doctor's home dashboard, including a current-vs-previous income comparison chart.
+
+#### Scenario: Doctor opens dashboard with data
+
+- **WHEN** a doctor requests `/me/doctor-dashboard` and has fee data for the latest period
+- **THEN** the response includes the doctor's current summary, previous-month summary (or null), recent own transactions, and recent own audit entries
+
+#### Scenario: Doctor requests a specific period
+
+- **WHEN** a doctor requests `/me/doctor-dashboard?period=2026-07`
+- **THEN** the current summary reflects 2026-07 and the previous summary reflects 2026-06
+
+#### Scenario: Dashboard never exposes another doctor's data
+
+- **WHEN** other doctors have transactions in the same or previous period
+- **THEN** the response contains only the requesting doctor's summary, transactions, and audit entries
+
+### Requirement: Fee recap presentation matches the payroll self-service page
+
+The doctor's "Fee Dokter Saya" recap for a period SHALL present the same visual hierarchy as the "Payroll Saya" page: the total transfer amount is the most prominent figure, the component amounts (fee perawatan, fee ortho/behel, tagihan, potongan, pajak) are compact cards arranged in a responsive multi-column grid, payment/bank details sit in an adjacent card with the export actions, and the period's own transactions render below as a read-only table.
+
+#### Scenario: Recap layout mirrors payroll slip
+
+- **WHEN** a doctor views a period recap on the fee page
+- **THEN** the total transfer is displayed with the same prominent typography as payroll's total, components are compact multi-column cards, and transaction rows show only the doctor's own records
+
 ### Requirement: Doctor cannot see other doctors' fee or payroll data
 
 Management endpoints that return cross-doctor fee data (`/doctor-transactions`, `/doctor-periods/:period/summary`, `/doctor-periods/:period/overview`, doctor-fee report exports) SHALL require an `admin` or `operator` role. Payroll management and payroll self-service data SHALL remain invisible to doctor accounts. A doctor's own period views SHALL be derived server-side from the linked doctor record; client-supplied doctor filters SHALL NOT widen the view.

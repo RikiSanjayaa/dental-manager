@@ -19,10 +19,11 @@ Current state (verified in code):
 Goals:
 - Minimal, reviewable change on the worker backend + shared frontend only.
 - Doctor account provisioning by admin (role + doctor link), identity payload with doctor info.
-- Read-only self-service fee view with strict server-side isolation.
+- Read-only self-service fee view + doctor dashboard/audit with strict server-side isolation.
+- Visual parity between "Payroll Saya" and "Fee Dokter Saya" recap layout.
 - Local QA path (dev seed doctor account) so qa/frontend/backend profiles can verify without production data.
 
-Non-goals (this change): FastAPI parity ports; doctor dashboards beyond the two self-service pages (fee + treatment history); doctor editing/recording treatment history or approving reviews; employee payroll-visibility redesign; deactivating a doctor master auto-revoking login.
+Non-goals (this change): FastAPI parity ports; dedicated doctor treatment-history page/endpoint (removed as redundant — fee page "Transaksi Saya" + dashboard recent rows cover it); doctor editing/recording treatment history or approving reviews; employee payroll-visibility redesign; deactivating a doctor master auto-revoking login.
 
 ## Decisions
 
@@ -53,13 +54,23 @@ Non-goals (this change): FastAPI parity ports; doctor dashboards beyond the two 
 9. **Doctor exports reuse the existing single-doctor generators.**
    `buildDoctorFeeReport` (reports.ts) already produces per-doctor PDFs (ZIP) and per-doctor XLSX sheets by filtering transactions on `summary.doctor_id`. Extend it with an optional `doctorId` filter that narrows summaries to one row, then expose `GET /me/doctor-fees/:period/export?format=pdf|xlsx` for doctors (pdf via `makeDoctorFeePdf`, xlsx via a single-summary workbook). ZIP and aggregate exports remain staff-only (403 for doctors). Empty periods 404, mirroring the payroll slip export. Doctor exports are archived (`reportarchive`, `created_by` = doctor user) but the archive browser stays `adminOnly` — the doctor re-exports rather than browsing archives.
 
-10. **Doctor treatment history is a dedicated read-only page + endpoint, not a role-aware fork of the shared CRUD page.**
-   Add `GET /me/doctor-transactions` (own rows, optional `period`) and a lean `MyTreatmentHistoryPage` reusing `DataTable` + the treatment-history types/utils. Alternative considered: conditionally read-only-ify the existing `TreatmentHistoryPage` — rejected: that page is mutation-heavy (editor dialog, import preview, bulk select/delete, review toggles) and conditionalizing it risks regressions for admin/operator workflows that must not change.
+10. **Doctor home is a dedicated dashboard endpoint, not client-side reuse.**
+   Add `GET /me/doctor-dashboard` mirroring the payroll `/me/dashboard` pattern: server resolves the doctor from `user.doctor_id`, returns current-period summary + previous-calendar-month summary (for the income comparison chart), recent own transactions, and recent own audit entries. Alternatives considered: computing month-over-month on the client from two `/me/doctor-fees/:period` calls, or reusing operator `/me/dashboard` — rejected: a single scoped endpoint keeps isolation rules in one place and matches how the operator dashboard already works.
+
+11. **The separate doctor treatment-history page/endpoint is removed as redundant.**
+   Client review: the fee page's "Transaksi Saya" table (own rows per period) already answers "what did I treat"; a second page duplicating it added nav clutter. `GET /me/doctor-transactions` and `MyTreatmentHistoryPage` are deleted; the dashboard's recent-rows list covers cross-period browsing. Fee period detail still returns full own-row lists.
+
+12. **Fee recap restyle reuses the payroll CSS classes.**
+   `MyPayrollPage` achieves its look via `.payroll-total-card`, `.payroll-total-amount` (2.25rem total) and `.payroll-summary-grid` (5-col, responsive to 2/1) in `styles/app.css`; `MyDoctorFeesPage` currently uses plain stacked markup, so it reads differently. Change: apply the same classes/structure to the fee recap card with doctor labels (Fee Dokter, Fee Behel, Tagihan, Potongan, Pajak). No new CSS or components.
+
+13. **Audit Akun is shared, not duplicated.**
+   `AuditLogsPage` with `selfOnly` already calls `/audit-logs/me`, which is role-agnostic and returns rows by `actor_id`. Doctors get the same page/nav entry as operators; no new audit code needed — only route/nav wiring.
 
 ## Risks / Trade-offs
 
 - **D1 schema drift** (local dev DBs missing `user.doctor_id`) → all tasks run `d1:migrate:local` first; typecheck/tests exercise the new column only after migration. Add `0004_doctor_user_accounts.sql` migration, applied with the existing `wrangler d1 migrations apply` flow.
-- **Missed endpoint leak** (some staff-only data path left open to doctors) → the new 403 scenarios in `doctor-fees/self-service` and `treatment-history/self-service` specs are written as tests; do a final grep audit over routes with `currentUser`-only guards during implementation.
+- **Missed endpoint leak** (some staff-only data path left open to doctors) → the new 403 scenarios in the two capability specs are written as tests; do a final grep audit over routes with `currentUser`-only guards during implementation.
+- **Frontend still referencing removed history endpoint/page** (stale imports, nav entries, or lingering `/me/doctor-transactions` calls) → removal task includes a repo-wide grep for `MyTreatmentHistory`/`/me/doctor-transactions` and a clean build; dashboard recent rows replace the endpoint.
 - **Doctor export generation accidentally includes other doctors** → `buildDoctorFeeReport`'s `doctorId` filter must narrow both summaries and per-sheet detail rows; covered by tests asserting a single summary appears in the generated output.
 - **Doctor export archive rows** (created by a doctor user) are invisible in the admin-only archive browser → acceptable: archive is for staff artifacts; doctor re-exports on demand. No R2 permission issue: the worker binding writes on the doctor's behalf.
 - **Frontend nav/guard regressions** (doctor sees operator items, operator sees doctor items) → centralize role checks in `lib/auth.ts`; the nav refactor replaces booleans with allowlists so no "third role falls through" path remains.

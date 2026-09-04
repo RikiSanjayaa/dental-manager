@@ -70,6 +70,20 @@ Doctor accounts have no employee link and SHALL NOT access payroll self-service 
 - **WHEN** a doctor user requests `/me/payroll/:period`
 - **THEN** the system responds 403 with a message that the account is not an employee/operator account
 
+### Requirement: Doctor can view own audit log
+
+Doctor accounts SHALL be able to read their own audit log entries (`/audit-logs/me`), e.g. their own login/logout and report-export activity, without seeing other users' entries.
+
+#### Scenario: Doctor opens Audit Akun
+
+- **WHEN** a doctor requests `/audit-logs/me`
+- **THEN** the response contains only audit entries whose actor is that doctor account
+
+#### Scenario: Doctor cannot read the full audit log
+
+- **WHEN** a doctor requests the admin audit-log endpoint
+- **THEN** the system responds 403
+
 ### Requirement: Revoking doctor access is done through the user account
 
 The system SHALL treat the user account as the source of truth for login access. Deactivating a doctor master record SHALL NOT by itself disable that doctor's user account.
