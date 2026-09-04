@@ -27,6 +27,9 @@ authRoutes.get("/me", currentUser, async (c) => {
   const employee = user.employee_id
     ? await c.env.DB.prepare("SELECT * FROM employee WHERE id = ?").bind(user.employee_id).first<Employee>()
     : null;
+  const doctor = user.doctor_id
+    ? await c.env.DB.prepare("SELECT * FROM doctor WHERE id = ?").bind(user.doctor_id).first<{ name: string }>()
+    : null;
   return c.json({
     id: user.id,
     username: user.username,
@@ -34,6 +37,8 @@ authRoutes.get("/me", currentUser, async (c) => {
     role: user.role,
     employee_id: user.employee_id,
     employee_name: employee?.name ?? null,
+    doctor_id: user.doctor_id,
+    doctor_name: doctor?.name ?? null,
   });
 });
 

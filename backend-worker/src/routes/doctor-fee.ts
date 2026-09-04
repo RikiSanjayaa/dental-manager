@@ -1,12 +1,13 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { adminOnly, type AppVariables } from "../auth";
+import { adminOnly, requireLinkedDoctor, staffOnly, type AppVariables } from "../auth";
 import { calculateDoctorTransaction } from "../calculations";
 import { all, first, recordAudit } from "../db";
 import { isDevelopment } from "../dev-data";
 import { nowIso } from "../http";
 import type { Env } from "../types";
 import { dateTextValue, numberValue, textValue, workbookRowsFromRequest } from "../xlsx";
+import { archiveAndDownload, buildDoctorFeeReport, doctorFeeReportData } from "./reports";
 
 export const doctorFeeRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -106,7 +107,9 @@ async function hydrateAndCalculate(env: Env, body: Record<string, unknown>): Pro
   return calculateDoctorTransaction(transaction, treatment, doctor, await defaultRule(env));
 }
 
-async function rowsForPeriod(env: Env, period: string) {
+async function rowsForPeriod(env: Env, period: string, doctorId?: number) {
+  const params: unknown[] = [period];
+  if (doctorId !== undefined) params.push(doctorId);
   return all<PeriodTransaction>(
     env.DB.prepare(
       `SELECT t.*, d.name AS doctor_name, d.normal_fee_rate, d.tax_rate,
@@ -116,9 +119,9 @@ async function rowsForPeriod(env: Env, period: string) {
        FROM doctortransaction t
        LEFT JOIN doctor d ON d.id = t.doctor_id
        LEFT JOIN treatment tr ON tr.id = t.treatment_id
-       WHERE t.period = ?
+       WHERE t.period = ?${doctorId !== undefined ? " AND t.doctor_id = ?" : ""}
        ORDER BY t.transaction_date DESC, t.id DESC`
-    ).bind(period)
+    ).bind(...params)
   );
 }
 
@@ -126,7 +129,9 @@ export function recalculatePeriodTransactions(rows: PeriodTransaction[], rule: R
   return rows.map((row) => calculateDoctorTransaction(row, row, row, rule));
 }
 
-async function doctorSummaries(env: Env, period: string) {
+async function doctorSummaries(env: Env, period: string, doctorId?: number) {
+  const params: unknown[] = [period, period];
+  if (doctorId !== undefined) params.push(doctorId);
   return all<Record<string, unknown>>(
     env.DB.prepare(
       `SELECT s.id, d.id AS doctor_id, d.name AS doctor_name, d.bank_name, d.account_name, d.account_number,
@@ -155,9 +160,9 @@ async function doctorSummaries(env: Env, period: string) {
          WHERE period = ?
          GROUP BY period, doctor_id
        ) tx ON tx.doctor_id = d.id
-       WHERE s.id IS NOT NULL OR tx.transaction_count > 0
+       WHERE (s.id IS NOT NULL OR tx.transaction_count > 0)${doctorId !== undefined ? " AND d.id = ?" : ""}
        ORDER BY d.name, d.id`
-    ).bind(period, period)
+    ).bind(...params)
   );
 }
 
@@ -260,7 +265,7 @@ async function storeTransactionPreview(env: Env, filename: string, preview: Reco
   return preview;
 }
 
-doctorFeeRoutes.get("/doctor-transactions", async (c) => {
+doctorFeeRoutes.get("/doctor-transactions", staffOnly, async (c) => {
   const period = c.req.query("period");
   const doctorId = c.req.query("doctor_id");
   const parsedDoctorId = doctorId ? Number(doctorId) : null;
@@ -289,7 +294,7 @@ doctorFeeRoutes.get("/doctor-transactions", async (c) => {
   return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(sql).bind(...params)));
 });
 
-doctorFeeRoutes.post("/doctor-transactions", async (c) => {
+doctorFeeRoutes.post("/doctor-transactions", staffOnly, async (c) => {
   const user = c.get("user");
   const calculated = await hydrateAndCalculate(c.env, await c.req.json<Record<string, unknown>>());
   const values = { ...pick(calculated, trxFields), created_at: nowIso() };
@@ -309,7 +314,7 @@ doctorFeeRoutes.post("/doctor-transactions", async (c) => {
   return c.json(await first(c.env.DB.prepare("SELECT * FROM doctortransaction WHERE id = ?").bind(result.meta.last_row_id)), 201);
 });
 
-doctorFeeRoutes.patch("/doctor-transactions/:id", async (c) => {
+doctorFeeRoutes.patch("/doctor-transactions/:id", staffOnly, async (c) => {
   const id = Number(c.req.param("id"));
   const existing = await first<Transaction>(c.env.DB.prepare("SELECT * FROM doctortransaction WHERE id = ?").bind(id));
   if (!existing) throw new HTTPException(404, { message: "Data tidak ditemukan" });
@@ -319,7 +324,7 @@ doctorFeeRoutes.patch("/doctor-transactions/:id", async (c) => {
   return c.json(await first(c.env.DB.prepare("SELECT * FROM doctortransaction WHERE id = ?").bind(id)));
 });
 
-doctorFeeRoutes.delete("/doctor-transactions/:id", async (c) => {
+doctorFeeRoutes.delete("/doctor-transactions/:id", staffOnly, async (c) => {
   const user = c.get("user");
   const id = Number(c.req.param("id"));
   const existing = await first<Transaction>(c.env.DB.prepare("SELECT * FROM doctortransaction WHERE id = ?").bind(id));
@@ -344,12 +349,12 @@ doctorFeeRoutes.delete("/doctor-transactions/:id", async (c) => {
   return c.json({ status: "ok" });
 });
 
-doctorFeeRoutes.post("/doctor-transactions/import/preview", async (c) => {
+doctorFeeRoutes.post("/doctor-transactions/import/preview", staffOnly, async (c) => {
   const user = c.get("user");
   const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
   return c.json(await storeTransactionPreview(c.env, filename, await buildTransactionPreview(c.env, rows), user.id));
 });
-doctorFeeRoutes.post("/doctor-transactions/import/:id/commit", async (c) => {
+doctorFeeRoutes.post("/doctor-transactions/import/:id/commit", staffOnly, async (c) => {
   const user = c.get("user");
   const importId = Number(c.req.param("id"));
   const stored = await first<{ preview_json: string }>(
@@ -381,7 +386,7 @@ doctorFeeRoutes.post("/doctor-transactions/import/:id/commit", async (c) => {
     .run();
   return c.json({ created, updated: 0, invalid_rows: preview.invalid_rows });
 });
-doctorFeeRoutes.post("/doctor-transactions/import", async (c) => {
+doctorFeeRoutes.post("/doctor-transactions/import", staffOnly, async (c) => {
   const user = c.get("user");
   const { filename, rows } = await workbookRowsFromRequest(c.req.raw);
   const preview = await storeTransactionPreview(c.env, filename, await buildTransactionPreview(c.env, rows), user.id);
@@ -487,11 +492,11 @@ doctorFeeRoutes.post("/doctor-periods/:period/calculate", adminOnly, async (c) =
   return c.json(await all(c.env.DB.prepare("SELECT * FROM doctorperiodsummary WHERE period = ?").bind(period)));
 });
 
-doctorFeeRoutes.get("/doctor-periods/:period/summary", async (c) => {
-  return c.json(await doctorSummaries(c.env, c.req.param("period")));
+doctorFeeRoutes.get("/doctor-periods/:period/summary", staffOnly, async (c) => {
+  return c.json(await doctorSummaries(c.env, c.req.param("period") ?? ""));
 });
 
-doctorFeeRoutes.get("/doctor-periods/:period/overview", async (c) => {
+doctorFeeRoutes.get("/doctor-periods/:period/overview", staffOnly, async (c) => {
   const period = c.req.param("period") ?? "";
   const transactions = await rowsForPeriod(c.env, period);
   const summaries = await doctorSummaries(c.env, period);
@@ -525,4 +530,133 @@ doctorFeeRoutes.post("/doctor-periods/:period/lock", adminOnly, async (c) => {
 doctorFeeRoutes.post("/doctor-periods/:period/unlock", adminOnly, async (c) => {
   await c.env.DB.prepare("UPDATE doctorperiodsummary SET status = 'draft' WHERE period = ?").bind(c.req.param("period")).run();
   return c.json(await all(c.env.DB.prepare("SELECT * FROM doctorperiodsummary WHERE period = ?").bind(c.req.param("period"))));
+});
+
+const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+function assertValidPeriod(period: string): void {
+  if (!PERIOD_RE.test(period)) throw new HTTPException(400, { message: "Periode harus berformat YYYY-MM." });
+}
+
+// Builds the doctor self-service period list: every period where the doctor has
+// transactions (status not_calculated until a summary exists) or a period
+// summary, newest first. Returns null latest_period when the doctor has none.
+export function doctorFeePeriodList(
+  transactionPeriods: string[],
+  summaryStatusByPeriod: Record<string, string>
+): { periods: Array<{ period: string; status: string }>; latest_period: string | null } {
+  const statusByPeriod: Record<string, string> = {};
+  for (const period of transactionPeriods) statusByPeriod[period] = "not_calculated";
+  for (const [period, status] of Object.entries(summaryStatusByPeriod)) statusByPeriod[period] = status;
+  const periods = Object.keys(statusByPeriod).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+  return {
+    periods: periods.map((period) => ({ period, status: statusByPeriod[period] || "empty" })),
+    latest_period: periods[0] ?? null,
+  };
+}
+
+doctorFeeRoutes.get("/me/doctor-fees", requireLinkedDoctor, async (c) => {
+  const doctorId = Number(c.get("user").doctor_id);
+  const transactionPeriods = await all<{ period: string }>(
+    c.env.DB.prepare("SELECT DISTINCT period FROM doctortransaction WHERE doctor_id = ?").bind(doctorId)
+  );
+  const summaries = await all<{ period: string; status: string }>(
+    c.env.DB.prepare("SELECT period, status FROM doctorperiodsummary WHERE doctor_id = ?").bind(doctorId)
+  );
+  const summaryStatusByPeriod: Record<string, string> = {};
+  for (const summary of summaries) summaryStatusByPeriod[summary.period] = summary.status;
+  return c.json(doctorFeePeriodList(transactionPeriods.map((row) => row.period), summaryStatusByPeriod));
+});
+
+doctorFeeRoutes.get("/me/doctor-fees/:period", requireLinkedDoctor, async (c) => {
+  const user = c.get("user");
+  const period = c.req.param("period") ?? "";
+  assertValidPeriod(period);
+  const doctorId = Number(user.doctor_id);
+  const doctor = await first<{ id: number; name: string; bank_name: string | null; account_name: string | null; account_number: string | null }>(
+    c.env.DB.prepare("SELECT id, name, bank_name, account_name, account_number FROM doctor WHERE id = ?").bind(doctorId)
+  );
+  const summaryRows = await doctorSummaries(c.env, period, doctorId);
+  const transactions = await rowsForPeriod(c.env, period, doctorId);
+  const summaryRow = summaryRows.find((row) => Number(row.doctor_id) === doctorId) ?? null;
+  const zeroed = (value: unknown) => Number(value || 0);
+  const reviewCount = transactions.filter((row) => row.needs_review).length;
+  const summary = summaryRow
+    ? {
+        status: summaryRow.status,
+        treatment_fee_total: zeroed(summaryRow.treatment_fee_total),
+        ortho_fee_total: zeroed(summaryRow.ortho_fee_total),
+        total_fee: zeroed(summaryRow.total_fee),
+        total_bill: zeroed(summaryRow.total_bill),
+        deduction: zeroed(summaryRow.deduction),
+        tax: zeroed(summaryRow.tax),
+        transfer_amount: zeroed(summaryRow.transfer_amount),
+        calculated_at: summaryRow.calculated_at ?? null,
+        transaction_count: Number(summaryRow.transaction_count || transactions.length),
+        review_count: reviewCount,
+      }
+    : {
+        status: "empty",
+        treatment_fee_total: 0,
+        ortho_fee_total: 0,
+        total_fee: 0,
+        total_bill: 0,
+        deduction: 0,
+        tax: 0,
+        transfer_amount: 0,
+        calculated_at: null,
+        transaction_count: transactions.length,
+        review_count: reviewCount,
+      };
+  return c.json({
+    period,
+    doctor: doctor
+      ? {
+          id: doctor.id,
+          name: doctor.name,
+          bank_name: doctor.bank_name,
+          account_name: doctor.account_name,
+          account_number: doctor.account_number,
+        }
+      : null,
+    summary,
+    transactions,
+  });
+});
+
+doctorFeeRoutes.get("/me/doctor-fees/:period/export", requireLinkedDoctor, async (c) => {
+  const user = c.get("user");
+  const period = c.req.param("period") ?? "";
+  assertValidPeriod(period);
+  const format = (c.req.query("format") || "xlsx").toLowerCase();
+  if (format !== "pdf" && format !== "xlsx") {
+    throw new HTTPException(400, { message: "Format export harus pdf atau xlsx." });
+  }
+  const doctorId = Number(user.doctor_id);
+  const { summaries, transactions } = await doctorFeeReportData(c.env, period, doctorId);
+  if (!summaries.length && !transactions.length) {
+    throw new HTTPException(404, { message: "Belum ada data fee dokter untuk periode ini." });
+  }
+  const file = await buildDoctorFeeReport(c.env, period, format, doctorId);
+  return archiveAndDownload(c, file);
+});
+
+doctorFeeRoutes.get("/me/doctor-transactions", requireLinkedDoctor, async (c) => {
+  const doctorId = Number(c.get("user").doctor_id);
+  const period = c.req.query("period");
+  if (period) assertValidPeriod(period);
+  const params: unknown[] = [doctorId];
+  let sql = `SELECT t.*, d.name AS doctor_name, tr.name AS treatment_name,
+                    COALESCE(t.bhp_override, tr.bhp_cost, 0) AS bhp_amount,
+                    COALESCE(t.price_override, tr.treatment_price, 0) AS price_amount
+             FROM doctortransaction t
+             LEFT JOIN doctor d ON d.id = t.doctor_id
+             LEFT JOIN treatment tr ON tr.id = t.treatment_id
+             WHERE t.doctor_id = ?`;
+  if (period) {
+    sql += " AND t.period = ?";
+    params.push(period);
+  }
+  sql += " ORDER BY t.transaction_date DESC, t.id DESC";
+  return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(sql).bind(...params)));
 });

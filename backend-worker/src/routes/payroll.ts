@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { adminOnly, type AppVariables } from "../auth";
+import { adminOnly, staffOnly, type AppVariables } from "../auth";
 import { calculateAttendanceRecord, calculatePayrollRecord } from "../calculations";
 import { all, first, recordAudit } from "../db";
 import { isDevelopment } from "../dev-data";
@@ -556,12 +556,12 @@ payrollRoutes.post("/payroll-periods/:period/calculate", adminOnly, async (c) =>
   return c.json(await all(c.env.DB.prepare("SELECT * FROM payrollrecord WHERE period = ?").bind(period)));
 });
 
-payrollRoutes.get("/payroll-periods/:period/summary", async (c) => {
-  return c.json(await payrollSummaries(c.env, c.req.param("period")));
+payrollRoutes.get("/payroll-periods/:period/summary", staffOnly, async (c) => {
+  return c.json(await payrollSummaries(c.env, c.req.param("period") ?? ""));
 });
 
-payrollRoutes.get("/payroll-periods/:period/overview", async (c) => {
-  const period = c.req.param("period");
+payrollRoutes.get("/payroll-periods/:period/overview", staffOnly, async (c) => {
+  const period = c.req.param("period") ?? "";
   const rows = await payrollSummaries(c.env, period);
   const payrollRows = rows.filter((row) => row.id != null);
   const attendance = await first<{ count: number; review_count: number; overtime_count: number }>(
@@ -601,6 +601,9 @@ payrollRoutes.get("/payroll-periods/:period/overview", async (c) => {
 payrollRoutes.get("/me/dashboard", async (c) => {
   const user = c.get("user");
 
+  if (user.role === "doctor") {
+    return c.json({ detail: "Akun dokter tidak memiliki akses payroll karyawan." }, 403);
+  }
   if (!user.employee_id) {
     return c.json({ detail: "Akun operator belum terhubung ke master data karyawan." }, 409);
   }
@@ -676,6 +679,9 @@ payrollRoutes.get("/me/dashboard", async (c) => {
 
 payrollRoutes.get("/me/payroll/:period", async (c) => {
   const user = c.get("user");
+  if (user.role === "doctor") {
+    return c.json({ detail: "Akun dokter tidak memiliki akses payroll karyawan." }, 403);
+  }
   if (!user.employee_id) {
     return c.json({ detail: "Akun operator belum terhubung ke master data karyawan." }, 409);
   }
@@ -708,6 +714,9 @@ payrollRoutes.get("/me/payroll/:period", async (c) => {
 
 payrollRoutes.get("/me/payroll/:period/export", async (c) => {
   const user = c.get("user");
+  if (user.role === "doctor") {
+    throw new HTTPException(403, { message: "Akun dokter tidak memiliki akses payroll karyawan." });
+  }
   if (!user.employee_id) {
     throw new HTTPException(409, { message: "Akun operator belum terhubung ke master data karyawan." });
   }
@@ -869,7 +878,7 @@ payrollRoutes.get("/me/payroll/:period/export", async (c) => {
   });
 });
 
-payrollRoutes.get("/payroll-periods/:period/overtime", async (c) => {
+payrollRoutes.get("/payroll-periods/:period/overtime", staffOnly, async (c) => {
   const employeeId = c.req.query("employee_id");
   let sql = "SELECT * FROM attendancerecord WHERE period = ? AND overtime_minutes > 0";
   const params: unknown[] = [c.req.param("period")];
@@ -881,8 +890,8 @@ payrollRoutes.get("/payroll-periods/:period/overtime", async (c) => {
   return c.json(await all(c.env.DB.prepare(sql).bind(...params)));
 });
 
-payrollRoutes.get("/payroll-periods/:period/slips/:employee_id", async (c) => {
-  return c.json((await payrollSummaries(c.env, c.req.param("period"))).find((row) => row.employee_id === Number(c.req.param("employee_id"))) ?? null);
+payrollRoutes.get("/payroll-periods/:period/slips/:employee_id", staffOnly, async (c) => {
+  return c.json((await payrollSummaries(c.env, c.req.param("period") ?? "")).find((row) => row.employee_id === Number(c.req.param("employee_id"))) ?? null);
 });
 
 payrollRoutes.patch("/payroll-records/:id", adminOnly, async (c) => {

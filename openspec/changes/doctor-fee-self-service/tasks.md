@@ -4,49 +4,49 @@ Implementation order. Backend groups first (schema → identity → fee views/ex
 
 ## 1. Database migration (backend-worker)
 
-- [ ] 1.1 Add `backend-worker/migrations/0004_doctor_user_accounts.sql`: `ALTER TABLE user ADD COLUMN doctor_id INTEGER REFERENCES doctor(id);` plus `CREATE UNIQUE INDEX IF NOT EXISTS ux_user_doctor_id ON user(doctor_id) WHERE doctor_id IS NOT NULL;`
-- [ ] 1.2 Apply locally and verify schema: `npm --prefix backend-worker run d1:migrate:local`, then inspect `user` columns (e.g. `wrangler d1 execute dental-manager --local --command "PRAGMA table_info(user);" --cwd backend-worker`)
+- [x] 1.1 Add `backend-worker/migrations/0004_doctor_user_accounts.sql`: `ALTER TABLE user ADD COLUMN doctor_id INTEGER REFERENCES doctor(id);` plus `CREATE UNIQUE INDEX IF NOT EXISTS ux_user_doctor_id ON user(doctor_id) WHERE doctor_id IS NOT NULL;`
+- [x] 1.2 Apply locally and verify schema: `npm --prefix backend-worker run d1:migrate:local`, then inspect `user` columns (e.g. `wrangler d1 execute dental-manager --local --command "PRAGMA table_info(user);" --cwd backend-worker`)
 
 ## 2. Worker types & auth helpers
 
-- [ ] 2.1 `backend-worker/src/types.ts`: extend `UserRole` with `"doctor"` and add `doctor_id: number | null` to `User`
-- [ ] 2.2 `backend-worker/src/auth.ts`: add `staffOnly` middleware (allows `admin` | `operator`, 403 otherwise) and `requireLinkedDoctor` helper (403/409 when `role === "doctor"` but no `doctor_id`)
-- [ ] 2.3 `backend-worker/src/routes/auth.ts`: `/auth/me` returns `doctor_id` and `doctor_name` (LEFT JOIN `doctor`), keeping `employee_name` behavior for operator/admin
+- [x] 2.1 `backend-worker/src/types.ts`: extend `UserRole` with `"doctor"` and add `doctor_id: number | null` to `User`
+- [x] 2.2 `backend-worker/src/auth.ts`: add `staffOnly` middleware (allows `admin` | `operator`, 403 otherwise) and `requireLinkedDoctor` helper (403/409 when `role === "doctor"` but no `doctor_id`)
+- [x] 2.3 `backend-worker/src/routes/auth.ts`: `/auth/me` returns `doctor_id` and `doctor_name` (LEFT JOIN `doctor`), keeping `employee_name` behavior for operator/admin
 
 ## 3. User provisioning (admin) in worker
 
-- [ ] 3.1 `backend-worker/src/routes/master.ts` `/users` list: include `doctor_id` + `doctor_name` (LEFT JOIN `doctor`)
-- [ ] 3.2 `POST /users` and `PATCH /users/:id`: accept `doctor_id`; validate role values (`admin`/`operator`/`doctor`), require `doctor_id` when role is `doctor`, reject unknown doctor ids and duplicate doctor links (400 with Indonesian message)
-- [ ] 3.3 Sanitize user create/update responses: return explicit safe projection without `hashed_password` (both POST and PATCH handlers that currently use `getById`)
+- [x] 3.1 `backend-worker/src/routes/master.ts` `/users` list: include `doctor_id` + `doctor_name` (LEFT JOIN `doctor`)
+- [x] 3.2 `POST /users` and `PATCH /users/:id`: accept `doctor_id`; validate role values (`admin`/`operator`/`doctor`), require `doctor_id` when role is `doctor`, reject unknown doctor ids and duplicate doctor links (400 with Indonesian message)
+- [x] 3.3 Sanitize user create/update responses: return explicit safe projection without `hashed_password` (both POST and PATCH handlers that currently use `getById`)
 
 ## 4. Doctor fee self-service endpoints + isolation guards
 
-- [ ] 4.1 Add `staffOnly` guard to cross-doctor fee endpoints in `backend-worker/src/routes/doctor-fee.ts`: `GET/POST/PATCH/DELETE /doctor-transactions` (+ import endpoints) and `GET /doctor-periods/:period/summary`, `GET /doctor-periods/:period/overview` (calculate/lock/unlock already `adminOnly`)
-- [ ] 4.2 Add `GET /me/doctor-fees` (route file: `doctor-fee.ts` or a small `me-doctor-fee.ts` mounted like payroll): resolves doctor from `user.doctor_id`, returns periods (distinct periods from `doctortransaction` + `doctorperiodsummary` for that doctor, newest first) with per-period status and `latest_period`; empty list + null `latest_period` when none
-- [ ] 4.3 Add `GET /me/doctor-fees/:period` returning doctor profile (name + bank/payment info), summary (status empty/not_calculated/draft/locked, treatment_fee_total, ortho_fee_total, total_fee, total_bill, deduction, tax, transfer_amount, calculated_at, transaction_count, review count) and the doctor's own transaction rows (date, patient, treatment, qty, fee amounts, total bill, review flag)
-- [ ] 4.4 Validate `:period` as `YYYY-MM` (400 otherwise) on self-service fee endpoints
+- [x] 4.1 Add `staffOnly` guard to cross-doctor fee endpoints in `backend-worker/src/routes/doctor-fee.ts`: `GET/POST/PATCH/DELETE /doctor-transactions` (+ import endpoints) and `GET /doctor-periods/:period/summary`, `GET /doctor-periods/:period/overview` (calculate/lock/unlock already `adminOnly`)
+- [x] 4.2 Add `GET /me/doctor-fees` (route file: `doctor-fee.ts` or a small `me-doctor-fee.ts` mounted like payroll): resolves doctor from `user.doctor_id`, returns periods (distinct periods from `doctortransaction` + `doctorperiodsummary` for that doctor, newest first) with per-period status and `latest_period`; empty list + null `latest_period` when none
+- [x] 4.3 Add `GET /me/doctor-fees/:period` returning doctor profile (name + bank/payment info), summary (status empty/not_calculated/draft/locked, treatment_fee_total, ortho_fee_total, total_fee, total_bill, deduction, tax, transfer_amount, calculated_at, transaction_count, review count) and the doctor's own transaction rows (date, patient, treatment, qty, fee amounts, total bill, review flag)
+- [x] 4.4 Validate `:period` as `YYYY-MM` (400 otherwise) on self-service fee endpoints
 
 ## 5. Doctor fee export (own)
 
-- [ ] 5.1 `backend-worker/src/routes/reports.ts`: extend `buildDoctorFeeReport(env, period, format, doctorId?)` to narrow summaries + detail rows to one doctor (XLSX single-summary workbook; PDF via existing `makeDoctorFeePdf` with the single summary)
-- [ ] 5.2 Add `GET /me/doctor-fees/:period/export?format=pdf|xlsx` (doctor-only): 404 when the doctor has no summary and no transactions for the period; archives the artifact (`reportarchive`, created_by = doctor) like other exports
-- [ ] 5.3 Restrict aggregate export endpoints to `staffOnly`: `/reports/doctor-fees`, `/reports/payroll` (ZIP and aggregate paths never reachable by doctors); archive list/download stays `adminOnly`
-- [ ] 5.4 Grep audit: confirm no fee/payroll management endpoint remains open to role `doctor` (search routes with `currentUser`-only guards that expose cross-doctor data)
+- [x] 5.1 `backend-worker/src/routes/reports.ts`: extend `buildDoctorFeeReport(env, period, format, doctorId?)` to narrow summaries + detail rows to one doctor (XLSX single-summary workbook; PDF via existing `makeDoctorFeePdf` with the single summary)
+- [x] 5.2 Add `GET /me/doctor-fees/:period/export?format=pdf|xlsx` (doctor-only): 404 when the doctor has no summary and no transactions for the period; archives the artifact (`reportarchive`, created_by = doctor) like other exports
+- [x] 5.3 Restrict aggregate export endpoints to `staffOnly`: `/reports/doctor-fees`, `/reports/payroll` (ZIP and aggregate paths never reachable by doctors); archive list/download stays `adminOnly`
+- [x] 5.4 Grep audit: confirm no fee/payroll management endpoint remains open to role `doctor` (search routes with `currentUser`-only guards that expose cross-doctor data)
 
 ## 6. Doctor treatment history (own)
 
-- [ ] 6.1 Add `GET /me/doctor-transactions` (doctor-only, optional `period` query, `YYYY-MM` validated; own rows only newest first; 403/409 when account not linked to a doctor)
-- [ ] 6.2 Confirm all transaction write/import endpoints remain `staffOnly` (doctor gets 403): `POST/PATCH/DELETE /doctor-transactions`, import preview/commit paths
+- [x] 6.1 Add `GET /me/doctor-transactions` (doctor-only, optional `period` query, `YYYY-MM` validated; own rows only newest first; 403/409 when account not linked to a doctor)
+- [x] 6.2 Confirm all transaction write/import endpoints remain `staffOnly` (doctor gets 403): `POST/PATCH/DELETE /doctor-transactions`, import preview/commit paths
 
 ## 7. Payroll self-service guard
 
-- [ ] 7.1 `backend-worker/src/routes/payroll.ts`: `/me/payroll/:period`, `/me/payroll/:period/export`, `/me/dashboard` return 403 when role is `doctor` (keep existing 409 for operator without employee link)
+- [x] 7.1 `backend-worker/src/routes/payroll.ts`: `/me/payroll/:period`, `/me/payroll/:period/export`, `/me/dashboard` return 403 when role is `doctor` (keep existing 409 for operator without employee link)
 
 ## 8. Worker dev seed + tests
 
-- [ ] 8.1 `backend-worker/src/dev-data.ts` `seedDevMasterData`: insert one demo doctor user (e.g. `drg.anindita`) linked to the first seeded doctor with a documented dev password (bcrypt via `hashPassword`), development-only
-- [ ] 8.2 Add/extend vitest coverage for pure helpers and guards: staff-role evaluation, doctor link requirement, single-doctor report filtering, self period/status derivation (follow existing `backend-worker/test/` patterns)
-- [ ] 8.3 Run `npm --prefix backend-worker run typecheck` and `npm --prefix backend-worker run test` green
+- [x] 8.1 `backend-worker/src/dev-data.ts` `seedDevMasterData`: insert one demo doctor user (e.g. `drg.anindita`) linked to the first seeded doctor with a documented dev password (bcrypt via `hashPassword`), development-only
+- [x] 8.2 Add/extend vitest coverage for pure helpers and guards: staff-role evaluation, doctor link requirement, single-doctor report filtering, self period/status derivation (follow existing `backend-worker/test/` patterns)
+- [x] 8.3 Run `npm --prefix backend-worker run typecheck` and `npm --prefix backend-worker run test` green
 
 ## 9. Frontend foundations (types, guards, nav)
 

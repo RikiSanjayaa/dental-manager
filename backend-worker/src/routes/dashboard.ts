@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { all, first } from "../db";
-import type { AppVariables } from "../auth";
+import { staffOnly, type AppVariables } from "../auth";
 import type { Env } from "../types";
 
 export const dashboardRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -77,7 +77,7 @@ async function totalsForPeriod(env: Env, period: string) {
   };
 }
 
-dashboardRoutes.get("/dashboard", async (c) => {
+dashboardRoutes.get("/dashboard", staffOnly, async (c) => {
   const period = c.req.query("period") || currentPeriod();
   const previous = previousPeriod(period);
   const totals = await totalsForPeriod(c.env, period);

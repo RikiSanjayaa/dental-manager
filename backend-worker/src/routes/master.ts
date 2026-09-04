@@ -409,14 +409,62 @@ masterRoutes.delete("/:target/:id/permanent", adminOnly, async (c) => {
   return c.json({ target, id, deleted: true });
 });
 
+const USER_ROLES = new Set(["admin", "operator", "doctor"]);
+
+const userSelectSql = `
+  SELECT user.id, user.username, user.full_name, user.role, user.employee_id,
+         employee.name AS employee_name, user.doctor_id, doctor.name AS doctor_name,
+         user.is_active, user.created_at
+  FROM user
+  LEFT JOIN employee ON employee.id = user.employee_id
+  LEFT JOIN doctor ON doctor.id = user.doctor_id`;
+
+function safeUser(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    username: row.username,
+    full_name: row.full_name,
+    role: row.role,
+    employee_id: row.employee_id ?? null,
+    employee_name: row.employee_name ?? null,
+    doctor_id: row.doctor_id ?? null,
+    doctor_name: row.doctor_name ?? null,
+    is_active: row.is_active,
+    created_at: row.created_at,
+  };
+}
+
+async function userById(env: Env, id: number) {
+  const row = await first<Record<string, unknown>>(env.DB.prepare(`${userSelectSql} WHERE user.id = ?`).bind(id));
+  return row ? safeUser(row) : null;
+}
+
+function normalizeRole(value: unknown, fallback: string): string {
+  const role = String(value ?? fallback).toLowerCase();
+  if (!USER_ROLES.has(role)) throw new HTTPException(400, { message: "Role tidak valid." });
+  return role;
+}
+
+function normalizeDoctorId(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) throw new HTTPException(400, { message: "doctor_id tidak valid." });
+  return parsed;
+}
+
+async function assertDoctorLinkAvailable(env: Env, doctorId: number | null, excludeUserId?: number): Promise<void> {
+  if (doctorId == null) return;
+  const doctor = await first<{ id: number }>(env.DB.prepare("SELECT id FROM doctor WHERE id = ?").bind(doctorId));
+  if (!doctor) throw new HTTPException(400, { message: "Dokter tidak ditemukan di master data." });
+  const linked = excludeUserId
+    ? await first<{ id: number }>(env.DB.prepare("SELECT id FROM user WHERE doctor_id = ? AND id != ?").bind(doctorId, excludeUserId))
+    : await first<{ id: number }>(env.DB.prepare("SELECT id FROM user WHERE doctor_id = ?").bind(doctorId));
+  if (linked) throw new HTTPException(400, { message: "Dokter sudah terhubung ke akun lain." });
+}
+
 masterRoutes.get("/users", adminOnly, async (c) => {
-  const rows = await all<Record<string, unknown>>(
-    c.env.DB.prepare(
-      `SELECT user.id, user.username, user.full_name, user.role, user.employee_id, employee.name AS employee_name, user.is_active
-       FROM user LEFT JOIN employee ON employee.id = user.employee_id ORDER BY user.id`
-    )
-  );
-  return c.json(rows);
+  const rows = await all<Record<string, unknown>>(c.env.DB.prepare(`${userSelectSql} ORDER BY user.id`));
+  return c.json(rows.map(safeUser));
 });
 
 masterRoutes.post("/users", adminOnly, async (c) => {
@@ -424,15 +472,22 @@ masterRoutes.post("/users", adminOnly, async (c) => {
   const body = await c.req.json<Record<string, unknown>>();
   const password = String(body.password || "");
   if (!body.username || !body.full_name || !password) throw new HTTPException(400, { message: "Data user belum lengkap." });
+  const role = normalizeRole(body.role, "operator");
+  const doctorId = normalizeDoctorId(body.doctor_id);
+  if (role === "doctor" && doctorId == null) {
+    throw new HTTPException(400, { message: "Role dokter wajib memiliki dokter terhubung (doctor_id)." });
+  }
+  await assertDoctorLinkAvailable(c.env, doctorId);
   const result = await c.env.DB.prepare(
-    `INSERT INTO user (username, full_name, role, employee_id, hashed_password, is_active, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO user (username, full_name, role, employee_id, doctor_id, hashed_password, is_active, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       String(body.username),
       String(body.full_name),
-      String(body.role || "operator"),
+      role,
       body.employee_id ?? null,
+      doctorId,
       await hashPassword(password),
       body.is_active === false ? 0 : 1,
       nowIso()
@@ -447,17 +502,31 @@ masterRoutes.post("/users", adminOnly, async (c) => {
     entity_id: result.meta.last_row_id,
     description: `Membuat user ${String(body.username)}.`,
   });
-  return c.json(await getById(c as never, "user", Number(result.meta.last_row_id)), 201);
+  return c.json(await userById(c.env, Number(result.meta.last_row_id)), 201);
 });
 
 masterRoutes.patch("/users/:id", adminOnly, async (c) => {
   const id = Number(c.req.param("id"));
+  const existing = await first<Record<string, unknown>>(c.env.DB.prepare("SELECT * FROM user WHERE id = ?").bind(id));
+  if (!existing) throw new HTTPException(404, { message: "User tidak ditemukan." });
   const body = await c.req.json<Record<string, unknown>>();
-  const values = pick(body, ["full_name", "role", "employee_id", "is_active"]);
+  const values = pick(body, ["full_name", "employee_id", "is_active"]);
+  if (body.role !== undefined) {
+    values.role = normalizeRole(body.role, "");
+  }
+  const role = values.role ? String(values.role) : String(existing.role).toLowerCase();
+  const hasDoctorId = Object.prototype.hasOwnProperty.call(body, "doctor_id");
+  let doctorId: number | null = hasDoctorId ? normalizeDoctorId(body.doctor_id) : existing.doctor_id == null ? null : Number(existing.doctor_id);
+  if (role !== "doctor" && !hasDoctorId) doctorId = null; // demoting a doctor account clears the doctor link
+  if (role === "doctor" && doctorId == null) {
+    throw new HTTPException(400, { message: "Role dokter wajib memiliki dokter terhubung (doctor_id)." });
+  }
+  await assertDoctorLinkAvailable(c.env, doctorId, id);
+  if (Number(existing.doctor_id ?? null) !== doctorId) values.doctor_id = doctorId;
   if (typeof body.password === "string" && body.password) values.hashed_password = await hashPassword(body.password);
   if (!Object.keys(values).length) throw new HTTPException(400, { message: "Payload kosong." });
   await c.env.DB.prepare(`UPDATE user SET ${assignmentSql(values)} WHERE id = ?`).bind(...Object.values(values), id).run();
-  return c.json(await getById(c as never, "user", id));
+  return c.json(await userById(c.env, id));
 });
 
 // GET /settings/report-identity is registered publicly in index.ts (pre-auth) so the
