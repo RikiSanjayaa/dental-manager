@@ -6,7 +6,7 @@ const DATA_TABLES = [
   "reportarchive", "importfile", "payrollrecord", "attendancerecord",
   "doctorperiodsummary", "doctortransaction", "auditlog", "attendanceholiday",
   "appsetting", "doctorfeerule", "attendancerule", "payrollrule", "treatment",
-  "doctor", "user", "employee",
+  "user", "doctor", "employee",
 ] as const;
 
 export function isDevelopment(env: Env): boolean {
@@ -15,6 +15,8 @@ export function isDevelopment(env: Env): boolean {
 
 export async function seedDevMasterData(env: Env): Promise<void> {
   const now = new Date().toISOString();
+  // Dev login for QA profiles (development only): drg.anindita / doctor12345
+  const doctorUserPassword = await hashPassword("doctor12345");
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO doctor (name, bank_name, account_name, account_number, nik, normal_fee_rate, ortho_fee_rate, tax_rate, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`)
       .bind("Drg. Anindita Prameswari", "BCA", "Anindita Prameswari", "1234567890", "7371014501900001", 0.6, 0.7, 0.025, now),
@@ -22,6 +24,13 @@ export async function seedDevMasterData(env: Env): Promise<void> {
       .bind("Drg. Bagas Mahendra", "MANDIRI", "Bagas Mahendra", "1410010098765", "7371021202880002", 0.55, 0.7, 0.025, now),
     env.DB.prepare(`INSERT INTO doctor (name, bank_name, account_name, account_number, nik, normal_fee_rate, ortho_fee_rate, tax_rate, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`)
       .bind("Drg. Citra Lestari", "BNI", "Citra Lestari", "8800123456", "7371036103910003", 0.6, 0.75, 0.025, now),
+    env.DB.prepare(
+      `INSERT INTO user (username, full_name, role, doctor_id, hashed_password, is_active, created_at)
+       SELECT 'drg.anindita', 'Drg. Anindita Prameswari', 'doctor', id, ?, 1, ?
+       FROM doctor
+       WHERE name = 'Drg. Anindita Prameswari'
+         AND NOT EXISTS (SELECT 1 FROM user WHERE username = 'drg.anindita')`
+    ).bind(doctorUserPassword, now),
     ...[
       ["KON-001", "Konsultasi Dokter Gigi", "KONSULTASI", 50000, 0, 0, 50000, 50000, "Konsultasi dasar pasien baru atau kontrol."],
       ["SC-001", "Scaling Rahang Atas Bawah", "PERAWATAN", 150000, 0, 25000, 225000, 250000, "Scaling rutin lengkap."],

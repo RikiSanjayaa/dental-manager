@@ -1,4 +1,4 @@
-export type UserRole = "admin" | "operator";
+export type UserRole = "admin" | "operator" | "doctor";
 export type PeriodStatus = "draft" | "reviewed" | "locked" | "exported";
 
 export type Env = {
@@ -20,6 +20,7 @@ export type User = {
   full_name: string;
   role: UserRole;
   employee_id: number | null;
+  doctor_id: number | null;
   hashed_password: string;
   is_active: number | boolean;
   created_at: string;

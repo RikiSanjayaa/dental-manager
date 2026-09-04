@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { zipSync } from "fflate";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { adminOnly, currentUser, type AppVariables } from "../auth";
+import { adminOnly, currentUser, staffOnly, type AppVariables } from "../auth";
 import { all, recordAudit } from "../db";
 import { nowIso } from "../http";
 import type { Env } from "../types";
@@ -91,17 +91,17 @@ reportsRoutes.get("/templates/:template_name", currentUser, async (c) => {
   return templateResponse(c.req.param("template_name") ?? "");
 });
 
-reportsRoutes.get("/doctor-fees", currentUser, async (c) => {
+reportsRoutes.get("/doctor-fees", staffOnly, async (c) => {
   const file = await buildDoctorFeeReport(c.env, c.req.query("period") || currentPeriod(), c.req.query("format") || "xlsx");
   return archiveAndDownload(c, file);
 });
 
-reportsRoutes.get("/payroll", currentUser, async (c) => {
+reportsRoutes.get("/payroll", staffOnly, async (c) => {
   const file = await buildPayrollReport(c.env, c.req.query("period") || currentPeriod(), c.req.query("format") || "xlsx");
   return archiveAndDownload(c, file);
 });
 
-reportsRoutes.get("/payroll/:period/slips/:employee_id.pdf", currentUser, async (c) => {
+reportsRoutes.get("/payroll/:period/slips/:employee_id.pdf", staffOnly, async (c) => {
   const period = c.req.param("period") ?? currentPeriod();
   const employeeId = Number((c.req.param("employee_id") ?? c.req.path.split("/").pop() ?? "").replace(/\.pdf$/i, ""));
   const summary = (await payrollSummaries(c.env, period)).find((row) => Number(row.employee_id) === employeeId);
@@ -118,7 +118,7 @@ reportsRoutes.get("/payroll/:period/slips/:employee_id.pdf", currentUser, async 
   });
 });
 
-async function archiveAndDownload(c: Context<{ Bindings: Env; Variables: AppVariables }>, file: ReportFile) {
+export async function archiveAndDownload(c: Context<{ Bindings: Env; Variables: AppVariables }>, file: ReportFile) {
   const user = c.get("user");
   const bytes = file.bytes instanceof Uint8Array ? file.bytes : new Uint8Array(file.bytes);
   const storedPath = `${file.reportType}/${file.period}/${Date.now()}-${file.filename}`;
@@ -150,11 +150,25 @@ async function archiveAndDownload(c: Context<{ Bindings: Env; Variables: AppVari
   });
 }
 
-export async function buildDoctorFeeReport(env: Env, period: string, format: string): Promise<ReportFile> {
-  const summaries = await doctorFeeSummaries(env, period);
-  const transactions = await doctorTransactions(env, period);
+export async function doctorFeeReportData(env: Env, period: string, doctorId?: number) {
+  const summaries = await doctorFeeSummaries(env, period, doctorId);
+  const transactions = await doctorTransactions(env, period, doctorId);
+  return {
+    summaries:
+      doctorId === undefined ? summaries : summaries.filter((row) => Number(row.doctor_id) === doctorId),
+    transactions:
+      doctorId === undefined ? transactions : transactions.filter((row) => Number(row.doctor_id) === doctorId),
+  };
+}
+
+export async function buildDoctorFeeReport(env: Env, period: string, format: string, doctorId?: number): Promise<ReportFile> {
+  const { summaries, transactions } = await doctorFeeReportData(env, period, doctorId);
   const status = summaries.length && summaries.every((row) => row.status === "locked") ? "final" : "draft";
   const reportClinicName = await getClinicName(env);
+  const baseName =
+    doctorId === undefined
+      ? `doctor-fees-${period}`
+      : `doctor-fees-${period}-${slug(String(summaries[0]?.doctor_name ?? transactions[0]?.doctor_name ?? doctorId))}`;
   if (format === "xlsx") {
     return {
       bytes: makeWorkbook([
@@ -171,7 +185,7 @@ export async function buildDoctorFeeReport(env: Env, period: string, format: str
           freeze: "A5",
         })),
       ]),
-      filename: `doctor-fees-${period}.xlsx`,
+      filename: `${baseName}.xlsx`,
       mediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       reportType: "doctor_fees",
       period,
@@ -182,11 +196,11 @@ export async function buildDoctorFeeReport(env: Env, period: string, format: str
   if (format === "zip") {
     const entries: Record<string, Uint8Array> = {};
     for (const summary of summaries) {
-      entries[`doctor-fees-${period}-${slug(String(summary.doctor_name ?? summary.doctor_id))}.pdf`] = await makeDoctorFeePdf(reportClinicName, period, status, [summary], transactions, false);
+      entries[`${baseName}-${slug(String(summary.doctor_name ?? summary.doctor_id))}.pdf`] = await makeDoctorFeePdf(reportClinicName, period, status, [summary], transactions, false);
     }
     return {
       bytes: zipSync(entries),
-      filename: `doctor-fees-${period}-per-dokter.zip`,
+      filename: `${baseName}-per-dokter.zip`,
       mediaType: "application/zip",
       reportType: "doctor_fees",
       period,
@@ -195,8 +209,8 @@ export async function buildDoctorFeeReport(env: Env, period: string, format: str
     };
   }
   return {
-    bytes: await makeDoctorFeePdf(reportClinicName, period, status, summaries, transactions, true),
-    filename: `doctor-fees-${period}.pdf`,
+    bytes: await makeDoctorFeePdf(reportClinicName, period, status, summaries, transactions, doctorId === undefined),
+    filename: `${baseName}.pdf`,
     mediaType: "application/pdf",
     reportType: "doctor_fees",
     period,
@@ -252,7 +266,9 @@ async function buildPayrollReport(env: Env, period: string, format: string): Pro
   };
 }
 
-async function doctorFeeSummaries(env: Env, period: string) {
+async function doctorFeeSummaries(env: Env, period: string, doctorId?: number) {
+  const params: unknown[] = [period, period];
+  if (doctorId !== undefined) params.push(doctorId);
   return all<Record<string, unknown>>(
     env.DB.prepare(
       `SELECT s.*, d.name AS doctor_name, d.bank_name, d.account_name, d.account_number,
@@ -265,13 +281,15 @@ async function doctorFeeSummaries(env: Env, period: string) {
          WHERE period = ?
          GROUP BY period, doctor_id
        ) tx ON tx.period = s.period AND tx.doctor_id = s.doctor_id
-       WHERE s.period = ?
+       WHERE s.period = ?${doctorId !== undefined ? " AND s.doctor_id = ?" : ""}
        ORDER BY d.name, s.doctor_id`
-    ).bind(period, period)
+    ).bind(...params)
   );
 }
 
-async function doctorTransactions(env: Env, period: string) {
+async function doctorTransactions(env: Env, period: string, doctorId?: number) {
+  const params: unknown[] = [period];
+  if (doctorId !== undefined) params.push(doctorId);
   return all<Record<string, unknown>>(
     env.DB.prepare(
       `SELECT t.*, d.name AS doctor_name, tr.name AS treatment_name,
@@ -280,9 +298,9 @@ async function doctorTransactions(env: Env, period: string) {
        FROM doctortransaction t
        LEFT JOIN doctor d ON d.id = t.doctor_id
        LEFT JOIN treatment tr ON tr.id = t.treatment_id
-       WHERE t.period = ?
+       WHERE t.period = ?${doctorId !== undefined ? " AND t.doctor_id = ?" : ""}
        ORDER BY t.transaction_date, t.id`
-    ).bind(period)
+    ).bind(...params)
   );
 }
 

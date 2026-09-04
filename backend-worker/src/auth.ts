@@ -90,6 +90,31 @@ export async function adminOnly(c: Context<{ Bindings: Env; Variables: AppVariab
   await next();
 }
 
+export function isStaff(user: Pick<User, "role">): boolean {
+  return user.role === "admin" || user.role === "operator";
+}
+
+// staffOnly = admin | operator. Blocks doctor accounts from cross-doctor
+// (management) endpoints that expose fee/payroll data of every doctor.
+export async function staffOnly(c: Context<{ Bindings: Env; Variables: AppVariables }>, next: Next) {
+  const user = c.get("user");
+  if (!isStaff(user)) throw new HTTPException(403, { message: "Akses hanya untuk staf klinik (admin/operator)." });
+  await next();
+}
+
+// requireLinkedDoctor guards doctor self-service endpoints: only the doctor role
+// may use them, and the account must be linked to a master doctor record.
+export async function requireLinkedDoctor(c: Context<{ Bindings: Env; Variables: AppVariables }>, next: Next) {
+  const user = c.get("user");
+  if (user.role !== "doctor") {
+    throw new HTTPException(403, { message: "Endpoint ini khusus untuk akun dokter." });
+  }
+  if (!user.doctor_id) {
+    throw new HTTPException(409, { message: "Akun dokter belum terhubung ke master data dokter." });
+  }
+  await next();
+}
+
 export async function login(env: Env, username: string, password: string) {
   await seedDefaults(env, hashPassword);
   const user = await getUserByUsername(env, username);

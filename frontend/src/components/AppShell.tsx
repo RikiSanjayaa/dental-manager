@@ -18,31 +18,40 @@ import {
   Sun,
   Users,
   UserCog,
+  Wallet,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { api, setToken, type UserMe } from "../lib/api";
-import { isAdministrator, roleLabel } from "../lib/auth";
+import { api, setToken, type Role, type UserMe } from "../lib/api";
+import { roleLabel } from "../lib/auth";
 import { useBrand } from "../lib/brand";
 
 type Props = {
   user: UserMe;
 };
 
-const nav: Array<{ to: string; label: string; icon: LucideIcon; adminOnly?: boolean; operatorOnly?: boolean }> = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/treatment-history", label: "Riwayat Perawatan", icon: ClipboardPlus },
-  { to: "/doctor-fees", label: "Fee Dokter", icon: Stethoscope, adminOnly: true },
-  { to: "/attendance", label: "Absensi", icon: ClipboardList },
-  { to: "/payroll", label: "Payroll", icon: ReceiptText, adminOnly: true },
-  { to: "/my-payroll", label: "Payroll Saya", icon: ReceiptText, operatorOnly: true },
-  { to: "/master-data", label: "Master Data", icon: Users, adminOnly: true },
-  { to: "/reports", label: "Laporan", icon: FileSpreadsheet, adminOnly: true },
-  { to: "/users", label: "User Management", icon: UserCog, adminOnly: true },
-  { to: "/audit-logs", label: "Audit Logs", icon: History, adminOnly: true },
-  { to: "/my-audit-logs", label: "Audit Akun", icon: History, operatorOnly: true },
-  { to: "/settings", label: "Pengaturan", icon: Settings, adminOnly: true },
+type NavItem = {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  roles: Role[];
+};
+
+const nav: NavItem[] = [
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "operator", "doctor"] },
+  { to: "/treatment-history", label: "Riwayat Perawatan", icon: ClipboardPlus, roles: ["admin", "operator"] },
+  { to: "/doctor-fees", label: "Fee Dokter", icon: Stethoscope, roles: ["admin"] },
+  { to: "/attendance", label: "Absensi", icon: ClipboardList, roles: ["admin", "operator"] },
+  { to: "/payroll", label: "Payroll", icon: ReceiptText, roles: ["admin"] },
+  { to: "/my-payroll", label: "Payroll Saya", icon: ReceiptText, roles: ["operator"] },
+  { to: "/master-data", label: "Master Data", icon: Users, roles: ["admin"] },
+  { to: "/reports", label: "Laporan", icon: FileSpreadsheet, roles: ["admin"] },
+  { to: "/users", label: "User Management", icon: UserCog, roles: ["admin"] },
+  { to: "/audit-logs", label: "Audit Logs", icon: History, roles: ["admin"] },
+  { to: "/my-doctor-fees", label: "Fee Dokter Saya", icon: Wallet, roles: ["doctor"] },
+  { to: "/my-audit-logs", label: "Audit Akun", icon: History, roles: ["operator", "doctor"] },
+  { to: "/settings", label: "Pengaturan", icon: Settings, roles: ["admin"] },
 ];
 
 const SIDEBAR_WIDTH = 260;
@@ -94,11 +103,7 @@ function AppShellFrame({ user }: Props) {
   const activeNav = nav.find((item) =>
     item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to),
   );
-  const visibleNav = nav.filter((item) => {
-    if (item.adminOnly) return isAdministrator(user);
-    if (item.operatorOnly) return !isAdministrator(user);
-    return true;
-  });
+  const visibleNav = nav.filter((item) => item.roles.includes(user.role));
 
   return (
     <>

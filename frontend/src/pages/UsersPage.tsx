@@ -14,6 +14,7 @@ import { KeyRound, Plus, Save, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { DataTable } from "../components/DataTable";
+import type { Doctor } from "../components/treatment-history/types";
 import { api, type Role } from "../lib/api";
 import { roleLabel } from "../lib/auth";
 
@@ -30,6 +31,8 @@ type UserRow = {
   role: Role;
   employee_id?: number | null;
   employee_name?: string | null;
+  doctor_id?: number | null;
+  doctor_name?: string | null;
   is_active: boolean;
 };
 
@@ -39,6 +42,7 @@ type UserDraft = {
   password: string;
   role: Role;
   employee_id: string;
+  doctor_id: string;
   is_active: boolean;
 };
 
@@ -48,11 +52,22 @@ const emptyDraft: UserDraft = {
   password: "",
   role: "operator",
   employee_id: "none",
+  doctor_id: "none",
   is_active: true,
 };
 
 function roleBadge(role: Role) {
   return <Badge variant={role === "admin" ? "info" : "secondary"}>{roleLabel(role)}</Badge>;
+}
+
+const ROLES: Role[] = ["operator", "admin", "doctor"];
+
+function roleOptions() {
+  return ROLES.map((role) => (
+    <Select.Option key={role} value={role}>
+      {roleLabel(role)}
+    </Select.Option>
+  ));
 }
 
 function includesText(value: unknown, query: string) {
@@ -75,13 +90,18 @@ export function UsersPage() {
     queryKey: ["employees"],
     queryFn: () => api<EmployeeOption[]>("/employees"),
   });
+  const { data: doctors } = useQuery({
+    queryKey: ["doctors"],
+    queryFn: () => api<Doctor[]>("/doctors"),
+  });
 
   const activeEmployees = useMemo(() => (employees ?? []).filter((employee) => employee.is_active), [employees]);
+  const activeDoctors = useMemo(() => (doctors ?? []).filter((doctor) => doctor.is_active), [doctors]);
 
   const filteredUsers = useMemo(
     () =>
       (users ?? []).filter((user) =>
-        [user.username, user.full_name, user.role, user.employee_name].some((value) => includesText(value, search)),
+        [user.username, user.full_name, user.role, user.employee_name, user.doctor_name].some((value) => includesText(value, search)),
       ),
     [search, users],
   );
@@ -92,7 +112,8 @@ export function UsersPage() {
         method: "POST",
         body: JSON.stringify({
           ...payload,
-          employee_id: payload.employee_id === "none" ? null : Number(payload.employee_id),
+          employee_id: payload.role === "doctor" || payload.employee_id === "none" ? null : Number(payload.employee_id),
+          doctor_id: payload.role === "doctor" ? Number(payload.doctor_id) : null,
         }),
       }),
     onSuccess: async () => {
@@ -117,7 +138,8 @@ export function UsersPage() {
         body: JSON.stringify({
           full_name: payload.full_name,
           role: payload.role,
-          employee_id: payload.employee_id === "none" ? null : Number(payload.employee_id),
+          employee_id: payload.role === "doctor" || payload.employee_id === "none" ? null : Number(payload.employee_id),
+          doctor_id: payload.role === "doctor" ? (payload.doctor_id === "none" ? null : Number(payload.doctor_id)) : null,
           is_active: payload.is_active,
           ...(payload.password ? { password: payload.password } : {}),
         }),
@@ -148,6 +170,7 @@ export function UsersPage() {
         password: "",
         role: row.role,
         employee_id: row.employee_id ? String(row.employee_id) : "none",
+        doctor_id: row.doctor_id ? String(row.doctor_id) : "none",
         is_active: row.is_active,
       }
     );
@@ -167,7 +190,7 @@ export function UsersPage() {
       <div className="flex items-start justify-between gap-4 py-4">
         <div>
           <h1 className="text-2xl font-semibold">User Management</h1>
-          <p className="mt-1 text-sm text-gray-600">Kelola akses admin dan operator karyawan.</p>
+          <p className="mt-1 text-sm text-gray-600">Kelola akses admin, operator, dan dokter.</p>
         </div>
         <Button
           variant="primary"
@@ -199,12 +222,10 @@ export function UsersPage() {
                 <div>
                   <Dialog.Title className="text-lg font-bold">Tambah User</Dialog.Title>
                   <Dialog.Description>
-                    Operator hanya bisa mengelola riwayat perawatan dan melihat absensi.
+                    Akun dokter wajib terhubung ke satu dokter master; dokter hanya melihat data fee dan riwayat perawatannya sendiri.
                   </Dialog.Description>
                 </div>
-                <Badge variant={draft.role === "admin" ? "info" : "secondary"}>
-                  {roleLabel(draft.role)}
-                </Badge>
+                {roleBadge(draft.role)}
               </div>
             </div>
 
@@ -239,24 +260,42 @@ export function UsersPage() {
                     renderValue={(value) => roleLabel(value as Role)}
                     onValueChange={(value) => setDraft((current) => ({ ...current, role: value as Role }))}
                   >
-                    <Select.Option value="operator">Operator</Select.Option>
-                    <Select.Option value="admin">Admin</Select.Option>
+                    {roleOptions()}
                   </Select>
                 </Field>
-                <Field label="Karyawan Terhubung">
-                  <Select
-                    value={draft.employee_id}
-                    renderValue={(value) => value === "none" ? "Tidak terhubung" : activeEmployees.find((employee) => String(employee.id) === value)?.name ?? "Karyawan"}
-                    onValueChange={(value) => setDraft((current) => ({ ...current, employee_id: String(value) }))}
-                  >
-                    <Select.Option value="none">Tidak terhubung</Select.Option>
-                    {activeEmployees.map((employee) => (
-                      <Select.Option key={employee.id} value={String(employee.id)}>
-                        {employee.name}
-                      </Select.Option>
-                    ))}
-                  </Select>
-                </Field>
+                {draft.role === "doctor" ? (
+                  <Field label="Dokter Terhubung">
+                    <Select
+                      value={draft.doctor_id}
+                      renderValue={(value) =>
+                        value === "none" ? "Pilih dokter" : activeDoctors.find((doctor) => String(doctor.id) === value)?.name ?? "Dokter"
+                      }
+                      onValueChange={(value) => setDraft((current) => ({ ...current, doctor_id: String(value) }))}
+                    >
+                      <Select.Option value="none">Pilih dokter</Select.Option>
+                      {activeDoctors.map((doctor) => (
+                        <Select.Option key={doctor.id} value={String(doctor.id)}>
+                          {doctor.name}
+                        </Select.Option>
+                      ))}
+                    </Select>
+                  </Field>
+                ) : (
+                  <Field label="Karyawan Terhubung">
+                    <Select
+                      value={draft.employee_id}
+                      renderValue={(value) => value === "none" ? "Tidak terhubung" : activeEmployees.find((employee) => String(employee.id) === value)?.name ?? "Karyawan"}
+                      onValueChange={(value) => setDraft((current) => ({ ...current, employee_id: String(value) }))}
+                    >
+                      <Select.Option value="none">Tidak terhubung</Select.Option>
+                      {activeEmployees.map((employee) => (
+                        <Select.Option key={employee.id} value={String(employee.id)}>
+                          {employee.name}
+                        </Select.Option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
                 <div style={{ gridColumn: "1 / -1" }}>
                   <Switch
                     size="sm"
@@ -280,7 +319,7 @@ export function UsersPage() {
                   variant="primary"
                   icon={<Plus size={18} />}
                   loading={createUser.isPending}
-                  disabled={!draft.username.trim() || !draft.full_name.trim() || !draft.password.trim()}
+                  disabled={!draft.username.trim() || !draft.full_name.trim() || !draft.password.trim() || (draft.role === "doctor" && draft.doctor_id === "none")}
                 >
                   Tambah User
                 </Button>
@@ -298,7 +337,7 @@ export function UsersPage() {
           </div>
           <div className="flex min-w-72 items-center gap-2">
             <Search size={16} className="text-kumo-subtle" />
-            <Input aria-label="Cari user" placeholder="Cari username, nama, atau role..." value={search} onChange={(event) => setSearch(event.target.value)} />
+            <Input aria-label="Cari user" placeholder="Cari username, nama, role, atau dokter..." value={search} onChange={(event) => setSearch(event.target.value)} />
           </div>
         </div>
 
@@ -306,7 +345,7 @@ export function UsersPage() {
           rows={filteredUsers}
           pagination
           pageSize={25}
-          minTableWidth={1080}
+          minTableWidth={1260}
           rowKey={(row) => row.id}
           columns={[
             { key: "username", header: "Username", render: (row) => row.username },
@@ -329,28 +368,53 @@ export function UsersPage() {
                   renderValue={(value) => roleLabel(value as Role)}
                   onValueChange={(value) => updateEditDraft(row.id, { role: value as Role })}
                 >
-                  <Select.Option value="operator">Operator</Select.Option>
-                  <Select.Option value="admin">Admin</Select.Option>
+                  {roleOptions()}
                 </Select>
               ),
             },
             {
               key: "employee",
               header: "Karyawan Terhubung",
-              render: (row) => (
-                <Select
-                  value={draftFor(row).employee_id}
-                  renderValue={(value) => value === "none" ? "Tidak terhubung" : activeEmployees.find((employee) => String(employee.id) === value)?.name ?? row.employee_name ?? "Karyawan"}
-                  onValueChange={(value) => updateEditDraft(row.id, { employee_id: String(value) })}
-                >
-                  <Select.Option value="none">Tidak terhubung</Select.Option>
-                  {activeEmployees.map((employee) => (
-                    <Select.Option key={employee.id} value={String(employee.id)}>
-                      {employee.name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              ),
+              render: (row) =>
+                draftFor(row).role === "doctor" ? (
+                  <span className="text-kumo-subtle">-</span>
+                ) : (
+                  <Select
+                    value={draftFor(row).employee_id}
+                    renderValue={(value) => value === "none" ? "Tidak terhubung" : activeEmployees.find((employee) => String(employee.id) === value)?.name ?? row.employee_name ?? "Karyawan"}
+                    onValueChange={(value) => updateEditDraft(row.id, { employee_id: String(value) })}
+                  >
+                    <Select.Option value="none">Tidak terhubung</Select.Option>
+                    {activeEmployees.map((employee) => (
+                      <Select.Option key={employee.id} value={String(employee.id)}>
+                        {employee.name}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                ),
+            },
+            {
+              key: "doctor",
+              header: "Dokter Terhubung",
+              render: (row) =>
+                draftFor(row).role === "doctor" ? (
+                  <Select
+                    value={draftFor(row).doctor_id}
+                    renderValue={(value) =>
+                      value === "none" ? "Pilih dokter" : activeDoctors.find((doctor) => String(doctor.id) === value)?.name ?? row.doctor_name ?? "Dokter"
+                    }
+                    onValueChange={(value) => updateEditDraft(row.id, { doctor_id: String(value) })}
+                  >
+                    <Select.Option value="none">Pilih dokter</Select.Option>
+                    {activeDoctors.map((doctor) => (
+                      <Select.Option key={doctor.id} value={String(doctor.id)}>
+                        {doctor.name}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                ) : (
+                  <span className="text-kumo-subtle">{row.doctor_name ?? "-"}</span>
+                ),
             },
             {
               key: "password",
