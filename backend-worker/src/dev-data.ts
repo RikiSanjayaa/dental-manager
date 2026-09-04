@@ -6,7 +6,7 @@ const DATA_TABLES = [
   "reportarchive", "importfile", "payrollrecord", "attendancerecord",
   "doctorperiodsummary", "doctortransaction", "auditlog", "attendanceholiday",
   "appsetting", "doctorfeerule", "attendancerule", "payrollrule", "treatment",
-  "doctor", "user", "employee",
+  "user", "doctor", "employee",
 ] as const;
 
 export function isDevelopment(env: Env): boolean {
