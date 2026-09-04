@@ -50,27 +50,27 @@ Implementation order. Backend groups first (schema → identity → fee views/ex
 
 ## 9. Frontend foundations (types, guards, nav)
 
-- [ ] 9.1 `frontend/src/lib/api.ts`: extend `Role` and `UserMe` with doctor role + `doctor_id`/`doctor_name`
-- [ ] 9.2 `frontend/src/lib/auth.ts`: add `isOperator`, `isDoctor`; keep `isAdministrator`; `roleLabel` returns "Dokter" for doctor
-- [ ] 9.3 `frontend/src/App.tsx`: `OperatorRoute` uses `isOperator` (not `!admin`); wrap `/treatment-history` and `/attendance` so doctors cannot reach them; doctor home (`HomeRoute`) redirects to `/my-doctor-fees`; doctor-only route guard for `/my-doctor-fees` and `/my-treatment-history`
-- [ ] 9.4 `frontend/src/components/AppShell.tsx`: convert nav item visibility to explicit role sets (admin/operator/doctor); add "Fee Dokter Saya" and "Riwayat Perawatan Saya" nav items for doctors; admin/operator-only items show only for their roles
+- [x] 9.1 `frontend/src/lib/api.ts`: extend `Role` and `UserMe` with doctor role + `doctor_id`/`doctor_name`
+- [x] 9.2 `frontend/src/lib/auth.ts`: add `isOperator`, `isDoctor`; keep `isAdministrator`; `roleLabel` returns "Dokter" for doctor
+- [x] 9.3 `frontend/src/App.tsx`: `OperatorRoute` uses `isOperator` (not `!admin`); wrap `/treatment-history` and `/attendance` so doctors cannot reach them; doctor home (`HomeRoute`) redirects to `/my-doctor-fees`; doctor-only route guard for `/my-doctor-fees` and `/my-treatment-history`
+- [x] 9.4 `frontend/src/components/AppShell.tsx`: convert nav item visibility to explicit role sets (admin/operator/doctor); add "Fee Dokter Saya" and "Riwayat Perawatan Saya" nav items for doctors; admin/operator-only items show only for their roles
 
 ## 10. Frontend User Management (admin)
 
-- [ ] 10.1 `frontend/src/pages/UsersPage.tsx`: role select + badge support `doctor`; create/edit dialog shows "Dokter Terhubung" picker when role is doctor (active doctors from `GET /doctors`); table shows doctor link column; search includes doctor name; payload sends `doctor_id` (null when unset)
+- [x] 10.1 `frontend/src/pages/UsersPage.tsx`: role select + badge support `doctor`; create/edit dialog shows "Dokter Terhubung" picker when role is doctor (active doctors from `GET /doctors`); table shows doctor link column; search includes doctor name; payload sends `doctor_id` (null when unset)
 
 ## 11. Frontend doctor self-service pages
 
-- [ ] 11.1 Create `frontend/src/pages/MyDoctorFeesPage.tsx` (modeled on `MyPayrollPage`): period picker defaulting to `latest_period` from `/me/doctor-fees`; summary cards (total fee, transfer, tax, deduction, total billing), status badge (empty/not calculated/draft/locked), bank/payment info card, read-only DataTable of own transactions with review flags, and export buttons (PDF/XLSX via `/me/doctor-fees/:period/export`)
-- [ ] 11.2 Create `frontend/src/pages/MyTreatmentHistoryPage.tsx` (read-only): period filter (optional, defaults to latest month), DataTable of own transactions (reuse `DataTable` + treatment-history types/utils), no create/edit/import/delete/review actions
-- [ ] 11.3 Wire both pages in `App.tsx` (routes + nav labels) and confirm empty/unlinked states render Indonesian messages (e.g. account not linked to a doctor)
+- [x] 11.1 Create `frontend/src/pages/MyDoctorFeesPage.tsx` (modeled on `MyPayrollPage`): period picker defaulting to `latest_period` from `/me/doctor-fees`; summary cards (total fee, transfer, tax, deduction, total billing), status badge (empty/not calculated/draft/locked), bank/payment info card, read-only DataTable of own transactions with review flags, and export buttons (PDF/XLSX via `/me/doctor-fees/:period/export`)
+- [x] 11.2 Create `frontend/src/pages/MyTreatmentHistoryPage.tsx` (read-only): period filter (optional, defaults to latest month), DataTable of own transactions (reuse `DataTable` + treatment-history types/utils), no create/edit/import/delete/review actions
+- [x] 11.3 Wire both pages in `App.tsx` (routes + nav labels) and confirm empty/unlinked states render Indonesian messages (e.g. account not linked to a doctor)
 
 ## 12. Frontend verification
 
-- [ ] 12.1 `npm --prefix frontend run build` (or `tsc --noEmit`) passes with the new role/pages code
+- [x] 12.1 `npm --prefix frontend run build` (or `tsc --noEmit`) passes with the new role/pages code
 - [ ] 12.2 Manual matrix (local stack): admin creates doctor account; doctor logs in and sees only own fee data + own history; doctor exports own XLSX/PDF; doctor gets 403 on management endpoints (`/doctor-periods/:period/overview`, `/doctor-transactions` writes/imports, `/reports/doctor-fees`, ZIP export); operator pages inaccessible to doctor; admin/operator flows unchanged
 
 ## 13. Handoff prep
 
-- [ ] 13.1 Commit only intended files on `feature/doctor-fee-self-service` (openspec/, .opencode/, code changes); `.hermes/` is intentionally absent
+- [x] 13.1 Commit only intended files on `feature/doctor-fee-self-service` (openspec/, .opencode/, code changes); `.hermes/` is intentionally absent
 - [ ] 13.2 Final summary for review: diff stat, verification output, list of decisions/assumptions for the user before merge to `main`

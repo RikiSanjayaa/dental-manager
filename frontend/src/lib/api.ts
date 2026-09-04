@@ -1,4 +1,4 @@
-export type Role = "admin" | "operator";
+export type Role = "admin" | "operator" | "doctor";
 
 export type UserMe = {
   id: number;
@@ -7,6 +7,8 @@ export type UserMe = {
   role: Role;
   employee_id?: number | null;
   employee_name?: string | null;
+  doctor_id?: number | null;
+  doctor_name?: string | null;
 };
 
 const WORKER_API_BASE = "https://dental-manager-api.imaderikiwidiastanasanjaya.workers.dev/api";

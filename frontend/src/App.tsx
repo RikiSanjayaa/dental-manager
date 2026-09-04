@@ -4,7 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/AppShell";
 import { api, getToken, type UserMe } from "./lib/api";
-import { isAdministrator } from "./lib/auth";
+import { isAdministrator, isDoctor, isOperator } from "./lib/auth";
 import { useBrand } from "./lib/brand";
 import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { AttendancePage } from "./pages/AttendancePage";
@@ -12,7 +12,9 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { DoctorFeesPage } from "./pages/DoctorFeesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MasterDataPage } from "./pages/MasterDataPage";
+import { MyDoctorFeesPage } from "./pages/MyDoctorFeesPage";
 import { MyPayrollPage } from "./pages/MyPayrollPage";
+import { MyTreatmentHistoryPage } from "./pages/MyTreatmentHistoryPage";
 import { OperatorDashboardPage } from "./pages/OperatorDashboardPage";
 import { PayrollPage } from "./pages/PayrollPage";
 import { ReportsPage } from "./pages/ReportsPage";
@@ -59,7 +61,35 @@ function OperatorRoute({ children }: { children: ReactNode }) {
   });
 
   if (!data) return null;
-  if (isAdministrator(data)) return <Navigate to="/" replace />;
+  if (!isOperator(data)) return <Navigate to="/" replace />;
+  return children;
+}
+
+function DoctorRoute({ children }: { children: ReactNode }) {
+  const { data } = useQuery({
+    queryKey: ["me"],
+    queryFn: () => api<UserMe>("/auth/me"),
+    enabled: Boolean(getToken()),
+    retry: false,
+  });
+
+  if (!data) return null;
+  if (!isDoctor(data)) return <Navigate to="/" replace />;
+  return children;
+}
+
+// Staff pages (treatment history, attendance) are shared by admin and
+// operator; doctors must never reach them.
+function StaffRoute({ children }: { children: ReactNode }) {
+  const { data } = useQuery({
+    queryKey: ["me"],
+    queryFn: () => api<UserMe>("/auth/me"),
+    enabled: Boolean(getToken()),
+    retry: false,
+  });
+
+  if (!data) return null;
+  if (isDoctor(data)) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -72,7 +102,9 @@ function HomeRoute() {
   });
 
   if (!data) return null;
-  return isAdministrator(data) ? <DashboardPage /> : <OperatorDashboardPage />;
+  if (isAdministrator(data)) return <DashboardPage />;
+  if (isDoctor(data)) return <Navigate to="/my-doctor-fees" replace />;
+  return <OperatorDashboardPage />;
 }
 
 export function App() {
@@ -81,17 +113,19 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<Protected />}>
         <Route path="/" element={<HomeRoute />} />
-        <Route path="/treatment-history" element={<TreatmentHistoryPage />} />
+        <Route path="/treatment-history" element={<StaffRoute><TreatmentHistoryPage /></StaffRoute>} />
         <Route path="/doctor-fees" element={<AdminRoute><DoctorFeesPage /></AdminRoute>} />
         <Route path="/payroll" element={<AdminRoute><PayrollPage /></AdminRoute>} />
         <Route path="/my-payroll" element={<OperatorRoute><MyPayrollPage /></OperatorRoute>} />
-        <Route path="/attendance" element={<AttendancePage />} />
+        <Route path="/attendance" element={<StaffRoute><AttendancePage /></StaffRoute>} />
         <Route path="/master-data" element={<AdminRoute><MasterDataPage /></AdminRoute>} />
         <Route path="/reports" element={<AdminRoute><ReportsPage /></AdminRoute>} />
         <Route path="/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
         <Route path="/audit-logs" element={<AdminRoute><AuditLogsPage /></AdminRoute>} />
         <Route path="/my-audit-logs" element={<OperatorRoute><AuditLogsPage selfOnly /></OperatorRoute>} />
         <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
+        <Route path="/my-doctor-fees" element={<DoctorRoute><MyDoctorFeesPage /></DoctorRoute>} />
+        <Route path="/my-treatment-history" element={<DoctorRoute><MyTreatmentHistoryPage /></DoctorRoute>} />
       </Route>
     </Routes>
   );
