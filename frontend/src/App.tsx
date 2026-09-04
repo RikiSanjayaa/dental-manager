@@ -139,6 +139,7 @@ export function App() {
         <Route path="/my-audit-logs" element={<SelfAuditRoute><AuditLogsPage selfOnly /></SelfAuditRoute>} />
         <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
         <Route path="/my-doctor-fees" element={<DoctorRoute><MyDoctorFeesPage /></DoctorRoute>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );
