@@ -68,7 +68,7 @@ Implementation order. Backend groups first (schema → identity → fee views/ex
 ## 12. Frontend verification
 
 - [x] 12.1 `npm --prefix frontend run build` (or `tsc --noEmit`) passes with the new role/pages code
-- [ ] 12.2 Manual matrix (local stack): admin creates doctor account; doctor logs in and sees only own fee data + own history; doctor exports own XLSX/PDF; doctor gets 403 on management endpoints (`/doctor-periods/:period/overview`, `/doctor-transactions` writes/imports, `/reports/doctor-fees`, ZIP export); operator pages inaccessible to doctor; admin/operator flows unchanged
+- [x] 12.2 Manual matrix (local stack): admin creates doctor account; doctor logs in and sees only own fee data + own history; doctor exports own XLSX/PDF; doctor gets 403 on management endpoints (`/doctor-periods/:period/overview`, `/doctor-transactions` writes/imports, `/reports/doctor-fees`, ZIP export); operator pages inaccessible to doctor; admin/operator flows unchanged. Verified by qa profile 2026-09-04 on dental-qa stack (localhost:8091): all steps PASS — doctor self-service fee page + own history + PDF/XLSX exports valid; doctor blocked from staff endpoints (403) and staff pages (redirect); operator + admin regression PASS. Caveat: dev-tools card not rendered at 375px mobile width (pre-existing responsive gate; QA triggered identical dev endpoints directly).
 
 ## 13. Handoff prep
 
