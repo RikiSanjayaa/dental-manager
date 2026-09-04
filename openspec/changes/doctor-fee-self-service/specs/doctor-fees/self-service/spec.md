@@ -48,12 +48,36 @@ The period detail SHALL include the individual transaction rows that generated t
 
 ### Requirement: Doctor fee view is read-only
 
-A doctor account SHALL NOT be able to create, update, delete, import, calculate, lock, or unlock any doctor-fee or treatment-history data, and SHALL NOT be able to request the aggregate fee export.
+A doctor account SHALL NOT be able to create, update, delete, import, calculate, lock, or unlock any doctor-fee or treatment-history data, and SHALL NOT be able to request the aggregate fee export or the per-doctor ZIP export used by staff.
 
 #### Scenario: Doctor attempts a management action
 
-- **WHEN** a doctor calls a transaction create/update/delete, import, calculate, lock/unlock, or fee-export endpoint
+- **WHEN** a doctor calls a transaction create/update/delete, import, calculate, lock/unlock, aggregate fee-export, or ZIP-export endpoint
 - **THEN** the system rejects the request with a 403 response
+
+### Requirement: Doctor can export own fee recap
+
+The system SHALL expose `GET /me/doctor-fees/:period/export?format=pdf|xlsx` that generates a single-doctor fee recap for the logged-in doctor's own period data. The generated file SHALL contain only that doctor's summary and transactions, SHALL be downloadable with an appropriate content type, and SHALL be archived like other generated reports. When the doctor has no summary and no transactions for the period, the system SHALL respond 404.
+
+#### Scenario: Doctor exports own period PDF
+
+- **WHEN** a doctor with a calculated summary requests `GET /me/doctor-fees/2026-07/export?format=pdf`
+- **THEN** the response is a PDF containing only that doctor's fee recap for 2026-07
+
+#### Scenario: Doctor exports own period XLSX
+
+- **WHEN** a doctor with a calculated summary requests `GET /me/doctor-fees/2026-07/export?format=xlsx`
+- **THEN** the response is an XLSX workbook containing only that doctor's recap rows and detail rows for 2026-07
+
+#### Scenario: Doctor exports an empty period
+
+- **WHEN** a doctor requests an export for a well-formed period where the doctor has no summary and no transactions
+- **THEN** the system responds 404 with a message that no fee data exists for the period
+
+#### Scenario: Doctor cannot export another doctor's recap
+
+- **WHEN** a doctor attempts to download the aggregate `/reports/doctor-fees` export or any ZIP/per-doctor staff export
+- **THEN** the system responds 403
 
 ### Requirement: Doctor cannot see other doctors' fee or payroll data
 

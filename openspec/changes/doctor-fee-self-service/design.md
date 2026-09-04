@@ -22,7 +22,7 @@ Goals:
 - Read-only self-service fee view with strict server-side isolation.
 - Local QA path (dev seed doctor account) so qa/frontend/backend profiles can verify without production data.
 
-Non-goals (this change): FastAPI parity ports; doctor exports; doctor dashboards beyond the self-service page; employee payroll-visibility redesign; deactivating a doctor master auto-revoking login.
+Non-goals (this change): FastAPI parity ports; doctor dashboards beyond the two self-service pages (fee + treatment history); doctor editing/recording treatment history or approving reviews; employee payroll-visibility redesign; deactivating a doctor master auto-revoking login.
 
 ## Decisions
 
@@ -50,13 +50,18 @@ Non-goals (this change): FastAPI parity ports; doctor exports; doctor dashboards
 8. **Demo doctor account in development seeds.**
    `seedDevMasterData` (dev-data.ts) adds a doctor user linked to the first seeded doctor (e.g. `drg.anindita` / documented dev password, bcrypt-hashed at seed time), so qa profiles can log in as a doctor locally. Production seeds do not create doctor accounts — the client admin provisions them in UI.
 
-9. **No worker-side export for doctors yet.**
-   PDF/XLSX generation paths (R2 + archive) stay staff-only. Follow-up change if the client asks; spec scenarios for management actions already cover the 403.
+9. **Doctor exports reuse the existing single-doctor generators.**
+   `buildDoctorFeeReport` (reports.ts) already produces per-doctor PDFs (ZIP) and per-doctor XLSX sheets by filtering transactions on `summary.doctor_id`. Extend it with an optional `doctorId` filter that narrows summaries to one row, then expose `GET /me/doctor-fees/:period/export?format=pdf|xlsx` for doctors (pdf via `makeDoctorFeePdf`, xlsx via a single-summary workbook). ZIP and aggregate exports remain staff-only (403 for doctors). Empty periods 404, mirroring the payroll slip export. Doctor exports are archived (`reportarchive`, `created_by` = doctor user) but the archive browser stays `adminOnly` — the doctor re-exports rather than browsing archives.
+
+10. **Doctor treatment history is a dedicated read-only page + endpoint, not a role-aware fork of the shared CRUD page.**
+   Add `GET /me/doctor-transactions` (own rows, optional `period`) and a lean `MyTreatmentHistoryPage` reusing `DataTable` + the treatment-history types/utils. Alternative considered: conditionally read-only-ify the existing `TreatmentHistoryPage` — rejected: that page is mutation-heavy (editor dialog, import preview, bulk select/delete, review toggles) and conditionalizing it risks regressions for admin/operator workflows that must not change.
 
 ## Risks / Trade-offs
 
 - **D1 schema drift** (local dev DBs missing `user.doctor_id`) → all tasks run `d1:migrate:local` first; typecheck/tests exercise the new column only after migration. Add `0004_doctor_user_accounts.sql` migration, applied with the existing `wrangler d1 migrations apply` flow.
-- **Missed endpoint leak** (some staff-only data path left open to doctors) → the new 403 scenarios in `doctor-fees/self-service` spec are written as tests; do a final grep audit over routes with `currentUser`-only guards during implementation.
+- **Missed endpoint leak** (some staff-only data path left open to doctors) → the new 403 scenarios in `doctor-fees/self-service` and `treatment-history/self-service` specs are written as tests; do a final grep audit over routes with `currentUser`-only guards during implementation.
+- **Doctor export generation accidentally includes other doctors** → `buildDoctorFeeReport`'s `doctorId` filter must narrow both summaries and per-sheet detail rows; covered by tests asserting a single summary appears in the generated output.
+- **Doctor export archive rows** (created by a doctor user) are invisible in the admin-only archive browser → acceptable: archive is for staff artifacts; doctor re-exports on demand. No R2 permission issue: the worker binding writes on the doctor's behalf.
 - **Frontend nav/guard regressions** (doctor sees operator items, operator sees doctor items) → centralize role checks in `lib/auth.ts`; the nav refactor replaces booleans with allowlists so no "third role falls through" path remains.
 - **ALGORITHM uniqueness surprise for admin UX** (second account for same doctor rejected) → show linked doctor name in the user list and include the doctor picker; 400 messages state the rule.
 - **Doctor identity when doctor master is soft-deleted** (deactivated) → keep user row link; detail view shows the stored name; acceptable because historical fees remain meaningful.
@@ -73,4 +78,4 @@ Non-goals (this change): FastAPI parity ports; doctor exports; doctor dashboards
 ## Open Questions
 
 - Username convention for doctor accounts and how initial passwords are delivered to doctors (ops detail; admin creates accounts in UI).
-- Whether doctors should eventually get a PDF/XLSX "fee slip" export (tracked as follow-up; out of scope here).
+- Whether the doctor's treatment-history page should also offer row-level fee figures (e.g., fee per transaction) or only the clinical/patient fields — frontend detail that can be settled during implementation without changing the specs.
