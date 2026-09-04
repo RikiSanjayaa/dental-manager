@@ -312,7 +312,7 @@ export function DoctorDashboardPage() {
             </div>
             <DataTable
               rows={data?.recent_transactions ?? []}
-              minTableWidth={760}
+              minTableWidth={640}
               rowKey={(row) => row.id}
               empty="Belum ada transaksi untuk akun ini."
               columns={[
@@ -335,17 +335,21 @@ export function DoctorDashboardPage() {
                 Audit Akun
               </Button>
             </div>
-            <DataTable
-              rows={(data?.recent_audit_logs ?? []).slice(0, 5)}
-              minTableWidth={380}
-              rowKey={(row) => row.id}
-              empty="Belum ada aktivitas audit untuk akun ini."
-              columns={[
-                { key: "time", header: "Waktu", render: (row) => formatDateTime(row.created_at) },
-                { key: "description", header: "Aktivitas", render: (row) => row.description },
-                { key: "action", header: "", render: (row) => statusBadge(row.action) },
-              ]}
-            />
+            <div className="flex flex-col gap-2">
+              {(data?.recent_audit_logs ?? []).length === 0 ? (
+                <p className="text-sm text-kumo-subtle">Belum ada aktivitas audit untuk akun ini.</p>
+              ) : (
+                (data?.recent_audit_logs ?? []).slice(0, 5).map((row) => (
+                  <div key={row.id} className="flex items-start justify-between gap-3 rounded-md border border-kumo-hairline bg-kumo-base px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs text-kumo-subtle">{formatDateTime(row.created_at)}</p>
+                      <p className="truncate text-sm">{row.description}</p>
+                    </div>
+                    <div className="shrink-0">{statusBadge(row.action)}</div>
+                  </div>
+                ))
+              )}
+            </div>
           </LayerCard>
         </GridItem>
       </Grid>
