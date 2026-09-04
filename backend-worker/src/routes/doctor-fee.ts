@@ -5,7 +5,7 @@ import { calculateDoctorTransaction } from "../calculations";
 import { all, first, recordAudit } from "../db";
 import { isDevelopment } from "../dev-data";
 import { nowIso } from "../http";
-import type { Env } from "../types";
+import type { Env, User } from "../types";
 import { dateTextValue, numberValue, textValue, workbookRowsFromRequest } from "../xlsx";
 import { archiveAndDownload, buildDoctorFeeReport, doctorFeeReportData } from "./reports";
 
@@ -555,17 +555,68 @@ export function doctorFeePeriodList(
   };
 }
 
-doctorFeeRoutes.get("/me/doctor-fees", requireLinkedDoctor, async (c) => {
-  const doctorId = Number(c.get("user").doctor_id);
+async function doctorFeePeriodRows(env: Env, doctorId: number) {
   const transactionPeriods = await all<{ period: string }>(
-    c.env.DB.prepare("SELECT DISTINCT period FROM doctortransaction WHERE doctor_id = ?").bind(doctorId)
+    env.DB.prepare("SELECT DISTINCT period FROM doctortransaction WHERE doctor_id = ?").bind(doctorId)
   );
   const summaries = await all<{ period: string; status: string }>(
-    c.env.DB.prepare("SELECT period, status FROM doctorperiodsummary WHERE doctor_id = ?").bind(doctorId)
+    env.DB.prepare("SELECT period, status FROM doctorperiodsummary WHERE doctor_id = ?").bind(doctorId)
   );
   const summaryStatusByPeriod: Record<string, string> = {};
   for (const summary of summaries) summaryStatusByPeriod[summary.period] = summary.status;
-  return c.json(doctorFeePeriodList(transactionPeriods.map((row) => row.period), summaryStatusByPeriod));
+  return doctorFeePeriodList(transactionPeriods.map((row) => row.period), summaryStatusByPeriod);
+}
+
+// Previous calendar month for the dashboard's month-over-month comparison,
+// e.g. 2026-07 -> 2026-06 and 2026-01 -> 2025-12.
+export function previousCalendarMonth(period: string): string {
+  const [year, month] = period.split("-").map(Number);
+  const previousYear = month === 1 ? year - 1 : year;
+  const previousMonth = month === 1 ? 12 : month - 1;
+  return `${previousYear}-${String(previousMonth).padStart(2, "0")}`;
+}
+
+// Shared summary object for the fee period detail and the dashboard. Null when
+// the doctor has no summary and no transactions for the period.
+function doctorSummaryPayload(
+  summaryRow: Record<string, unknown> | null,
+  transactions: PeriodTransaction[]
+): Record<string, unknown> | null {
+  if (!summaryRow) return null;
+  const zeroed = (value: unknown) => Number(value || 0);
+  return {
+    status: summaryRow.status,
+    treatment_fee_total: zeroed(summaryRow.treatment_fee_total),
+    ortho_fee_total: zeroed(summaryRow.ortho_fee_total),
+    total_fee: zeroed(summaryRow.total_fee),
+    total_bill: zeroed(summaryRow.total_bill),
+    deduction: zeroed(summaryRow.deduction),
+    tax: zeroed(summaryRow.tax),
+    transfer_amount: zeroed(summaryRow.transfer_amount),
+    calculated_at: summaryRow.calculated_at ?? null,
+    transaction_count: Number(summaryRow.transaction_count || transactions.length),
+    review_count: transactions.filter((row) => row.needs_review).length,
+  };
+}
+
+function emptyDoctorSummary(transactions: PeriodTransaction[]): Record<string, unknown> {
+  return {
+    status: "empty",
+    treatment_fee_total: 0,
+    ortho_fee_total: 0,
+    total_fee: 0,
+    total_bill: 0,
+    deduction: 0,
+    tax: 0,
+    transfer_amount: 0,
+    calculated_at: null,
+    transaction_count: transactions.length,
+    review_count: transactions.filter((row) => row.needs_review).length,
+  };
+}
+
+doctorFeeRoutes.get("/me/doctor-fees", requireLinkedDoctor, async (c) => {
+  return c.json(await doctorFeePeriodRows(c.env, Number(c.get("user").doctor_id)));
 });
 
 doctorFeeRoutes.get("/me/doctor-fees/:period", requireLinkedDoctor, async (c) => {
@@ -579,35 +630,7 @@ doctorFeeRoutes.get("/me/doctor-fees/:period", requireLinkedDoctor, async (c) =>
   const summaryRows = await doctorSummaries(c.env, period, doctorId);
   const transactions = await rowsForPeriod(c.env, period, doctorId);
   const summaryRow = summaryRows.find((row) => Number(row.doctor_id) === doctorId) ?? null;
-  const zeroed = (value: unknown) => Number(value || 0);
-  const reviewCount = transactions.filter((row) => row.needs_review).length;
-  const summary = summaryRow
-    ? {
-        status: summaryRow.status,
-        treatment_fee_total: zeroed(summaryRow.treatment_fee_total),
-        ortho_fee_total: zeroed(summaryRow.ortho_fee_total),
-        total_fee: zeroed(summaryRow.total_fee),
-        total_bill: zeroed(summaryRow.total_bill),
-        deduction: zeroed(summaryRow.deduction),
-        tax: zeroed(summaryRow.tax),
-        transfer_amount: zeroed(summaryRow.transfer_amount),
-        calculated_at: summaryRow.calculated_at ?? null,
-        transaction_count: Number(summaryRow.transaction_count || transactions.length),
-        review_count: reviewCount,
-      }
-    : {
-        status: "empty",
-        treatment_fee_total: 0,
-        ortho_fee_total: 0,
-        total_fee: 0,
-        total_bill: 0,
-        deduction: 0,
-        tax: 0,
-        transfer_amount: 0,
-        calculated_at: null,
-        transaction_count: transactions.length,
-        review_count: reviewCount,
-      };
+  const summary = doctorSummaryPayload(summaryRow, transactions) ?? emptyDoctorSummary(transactions);
   return c.json({
     period,
     doctor: doctor
@@ -641,22 +664,73 @@ doctorFeeRoutes.get("/me/doctor-fees/:period/export", requireLinkedDoctor, async
   return archiveAndDownload(c, file);
 });
 
-doctorFeeRoutes.get("/me/doctor-transactions", requireLinkedDoctor, async (c) => {
-  const doctorId = Number(c.get("user").doctor_id);
-  const period = c.req.query("period");
-  if (period) assertValidPeriod(period);
-  const params: unknown[] = [doctorId];
-  let sql = `SELECT t.*, d.name AS doctor_name, tr.name AS treatment_name,
-                    COALESCE(t.bhp_override, tr.bhp_cost, 0) AS bhp_amount,
-                    COALESCE(t.price_override, tr.treatment_price, 0) AS price_amount
-             FROM doctortransaction t
-             LEFT JOIN doctor d ON d.id = t.doctor_id
-             LEFT JOIN treatment tr ON tr.id = t.treatment_id
-             WHERE t.doctor_id = ?`;
-  if (period) {
-    sql += " AND t.period = ?";
-    params.push(period);
+// Doctor home dashboard (GET /me/doctor-dashboard): own income overview for the
+// requested period (default: the doctor's latest period with data, else the
+// current calendar month), the same summary for the previous calendar month when
+// the doctor has data there, plus recent own transactions and audit entries.
+// Every query is scoped to the requesting doctor/user — no client-supplied
+// doctor id is accepted.
+export async function doctorDashboardPayload(
+  env: Env,
+  user: Pick<User, "id" | "doctor_id">,
+  requestedPeriod?: string
+) {
+  if (requestedPeriod) assertValidPeriod(requestedPeriod);
+  const doctorId = Number(user.doctor_id);
+  const period =
+    requestedPeriod || (await doctorFeePeriodRows(env, doctorId)).latest_period || new Date().toISOString().slice(0, 7);
+  const doctor = await first<{ id: number; name: string; bank_name: string | null; account_name: string | null; account_number: string | null }>(
+    env.DB.prepare("SELECT id, name, bank_name, account_name, account_number FROM doctor WHERE id = ?").bind(doctorId)
+  );
+  if (!doctor) throw new HTTPException(404, { message: "Master data dokter tidak ditemukan." });
+
+  const currentSummaryRow = (await doctorSummaries(env, period, doctorId)).find((row) => Number(row.doctor_id) === doctorId) ?? null;
+  const currentTransactions = await rowsForPeriod(env, period, doctorId);
+  const summary = doctorSummaryPayload(currentSummaryRow, currentTransactions) ?? emptyDoctorSummary(currentTransactions);
+
+  const previousPeriod = previousCalendarMonth(period);
+  let previous: Record<string, unknown> | null = null;
+  const previousSummaryRow = (await doctorSummaries(env, previousPeriod, doctorId)).find((row) => Number(row.doctor_id) === doctorId) ?? null;
+  if (previousSummaryRow) {
+    previous = doctorSummaryPayload(previousSummaryRow, await rowsForPeriod(env, previousPeriod, doctorId));
   }
-  sql += " ORDER BY t.transaction_date DESC, t.id DESC";
-  return c.json(await all<Record<string, unknown>>(c.env.DB.prepare(sql).bind(...params)));
+
+  const recentTransactions = await all<Record<string, unknown>>(
+    env.DB.prepare(
+      `SELECT t.*, d.name AS doctor_name, tr.name AS treatment_name,
+              COALESCE(t.bhp_override, tr.bhp_cost, 0) AS bhp_amount,
+              COALESCE(t.price_override, tr.treatment_price, 0) AS price_amount
+       FROM doctortransaction t
+       LEFT JOIN doctor d ON d.id = t.doctor_id
+       LEFT JOIN treatment tr ON tr.id = t.treatment_id
+       WHERE t.doctor_id = ?
+       ORDER BY t.transaction_date DESC, t.id DESC
+       LIMIT 5`
+    ).bind(doctorId)
+  );
+  const recentAuditLogs = await all<Record<string, unknown>>(
+    env.DB.prepare(
+      "SELECT id, action, entity_type, description, created_at FROM auditlog WHERE actor_id = ? ORDER BY created_at DESC LIMIT 5"
+    ).bind(user.id)
+  );
+
+  return {
+    period,
+    doctor: {
+      id: doctor.id,
+      name: doctor.name,
+      bank_name: doctor.bank_name,
+      account_name: doctor.account_name,
+      account_number: doctor.account_number,
+    },
+    summary,
+    previous,
+    recent_transactions: recentTransactions,
+    recent_audit_logs: recentAuditLogs,
+  };
+}
+
+doctorFeeRoutes.get("/me/doctor-dashboard", requireLinkedDoctor, async (c) => {
+  const user = c.get("user");
+  return c.json(await doctorDashboardPayload(c.env, user, c.req.query("period") ?? undefined));
 });

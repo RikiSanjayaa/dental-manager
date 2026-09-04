@@ -60,9 +60,9 @@ Final consolidated task list for the branch. Phase 1 (accounts, fee view, export
 
 ## 11. Phase 2 — Doctor dashboard backend (worker)
 
-- [ ] 11.1 Add `GET /me/doctor-dashboard` (doctor-only): optional `period` (default latest with data; `YYYY-MM` validated); returns doctor profile, current summary (status/fee totals/transfer/billing/transaction+review counts), previous-calendar-month summary (or null), recent own transactions (limit ~5), recent own audit entries (limit ~5)
-- [ ] 11.2 Remove `GET /me/doctor-transactions` route + its tests from `backend-worker` (redundant with dashboard recent rows + fee period detail)
-- [ ] 11.3 Update/extend vitest coverage for `/me/doctor-dashboard` (scoping, previous-month derivation, malformed period); `npm --prefix backend-worker run typecheck` and `npm --prefix backend-worker run test` green
+- [x] 11.1 Add `GET /me/doctor-dashboard` (doctor-only): optional `period` (default latest with data; `YYYY-MM` validated); returns doctor profile, current summary (status/fee totals/transfer/billing/transaction+review counts), previous-calendar-month summary (or null), recent own transactions (limit ~5), recent own audit entries (limit ~5)
+- [x] 11.2 Remove `GET /me/doctor-transactions` route + its tests from `backend-worker` (redundant with dashboard recent rows + fee period detail)
+- [x] 11.3 Update/extend vitest coverage for `/me/doctor-dashboard` (scoping, previous-month derivation, malformed period); `npm --prefix backend-worker run typecheck` and `npm --prefix backend-worker run test` green
 
 ## 12. Phase 2 — Doctor dashboard, audit & history removal (frontend)
 
