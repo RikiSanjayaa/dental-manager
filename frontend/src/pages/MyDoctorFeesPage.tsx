@@ -85,8 +85,9 @@ export function MyDoctorFeesPage() {
 
   const summaryRows = useMemo(
     () => [
-      ["Total fee dokter", detail?.summary.total_fee ?? 0],
-      ["Tagihan pasien", detail?.summary.total_bill ?? 0],
+      ["Fee Dokter", detail?.summary.treatment_fee_total ?? 0],
+      ["Fee Behel", detail?.summary.ortho_fee_total ?? 0],
+      ["Tagihan", detail?.summary.total_bill ?? 0],
       ["Potongan", -(detail?.summary.deduction ?? 0)],
       ["Pajak", -(detail?.summary.tax ?? 0)],
     ],
@@ -170,12 +171,12 @@ export function MyDoctorFeesPage() {
               </div>
 
               <div className="grid gap-3">
-                <div className="rounded-md border border-kumo-line bg-kumo-base p-4">
+                <div className="payroll-total-card rounded-md border border-kumo-line bg-kumo-base p-4">
                   <p className="text-xs text-kumo-subtle">Total transfer</p>
-                  <p className="mt-2 font-semibold text-kumo-default">{rupiah.format(detail?.summary.transfer_amount ?? 0)}</p>
+                  <p className="payroll-total-amount mt-2 font-semibold text-kumo-default">{rupiah.format(detail?.summary.transfer_amount ?? 0)}</p>
                 </div>
 
-                <div className="grid gap-2">
+                <div className="payroll-summary-grid grid gap-2">
                   {summaryRows.map(([label, value]) => (
                     <div key={String(label)} className="min-w-0 rounded-md border border-kumo-hairline bg-kumo-tint px-3 py-2">
                       <p className="text-xs text-kumo-subtle">{label}</p>

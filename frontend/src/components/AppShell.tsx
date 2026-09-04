@@ -5,7 +5,6 @@ import { Sidebar, useSidebar } from "@cloudflare/kumo/components/sidebar";
 import { Text } from "@cloudflare/kumo/components/text";
 import {
   type LucideIcon,
-  ClipboardCheck,
   ClipboardList,
   ClipboardPlus,
   FileSpreadsheet,
@@ -40,7 +39,7 @@ type NavItem = {
 };
 
 const nav: NavItem[] = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "operator"] },
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "operator", "doctor"] },
   { to: "/treatment-history", label: "Riwayat Perawatan", icon: ClipboardPlus, roles: ["admin", "operator"] },
   { to: "/doctor-fees", label: "Fee Dokter", icon: Stethoscope, roles: ["admin"] },
   { to: "/attendance", label: "Absensi", icon: ClipboardList, roles: ["admin", "operator"] },
@@ -50,10 +49,9 @@ const nav: NavItem[] = [
   { to: "/reports", label: "Laporan", icon: FileSpreadsheet, roles: ["admin"] },
   { to: "/users", label: "User Management", icon: UserCog, roles: ["admin"] },
   { to: "/audit-logs", label: "Audit Logs", icon: History, roles: ["admin"] },
-  { to: "/my-audit-logs", label: "Audit Akun", icon: History, roles: ["operator"] },
-  { to: "/settings", label: "Pengaturan", icon: Settings, roles: ["admin"] },
   { to: "/my-doctor-fees", label: "Fee Dokter Saya", icon: Wallet, roles: ["doctor"] },
-  { to: "/my-treatment-history", label: "Riwayat Perawatan Saya", icon: ClipboardCheck, roles: ["doctor"] },
+  { to: "/my-audit-logs", label: "Audit Akun", icon: History, roles: ["operator", "doctor"] },
+  { to: "/settings", label: "Pengaturan", icon: Settings, roles: ["admin"] },
 ];
 
 const SIDEBAR_WIDTH = 260;

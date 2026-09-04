@@ -55,8 +55,8 @@ Final consolidated task list for the branch. Phase 1 (accounts, fee view, export
 
 ## 10. Phase 2 — Fee recap restyle (frontend)
 
-- [ ] 10.1 Restyle `MyDoctorFeesPage.tsx` recap to match `MyPayrollPage`: reuse `.payroll-total-card`/`.payroll-total-amount` (prominent total transfer) and `.payroll-summary-grid` for the component cards (Fee Dokter / Fee Behel / Tagihan / Potongan / Pajak), keep payment-info card + PDF/XLSX buttons and the read-only "Transaksi Saya" table
-- [ ] 10.2 Frontend build passes after restyle (`npm --prefix frontend run build`)
+- [x] 10.1 Restyle `MyDoctorFeesPage.tsx` recap to match `MyPayrollPage`: reuse `.payroll-total-card`/`.payroll-total-amount` (prominent total transfer) and `.payroll-summary-grid` for the component cards (Fee Dokter / Fee Behel / Tagihan / Potongan / Pajak), keep payment-info card + PDF/XLSX buttons and the read-only "Transaksi Saya" table
+- [x] 10.2 Frontend build passes after restyle (`npm --prefix frontend run build`)
 
 ## 11. Phase 2 — Doctor dashboard backend (worker)
 
@@ -66,9 +66,9 @@ Final consolidated task list for the branch. Phase 1 (accounts, fee view, export
 
 ## 12. Phase 2 — Doctor dashboard, audit & history removal (frontend)
 
-- [ ] 12.1 Create `frontend/src/pages/DoctorDashboardPage.tsx` (doctor home): KPI cards for selected period, current-vs-previous income comparison chart styled like the admin dashboard (ECharts, own data only), recent own transactions table, recent own audit entries; period picker defaults to dashboard `period`
-- [ ] 12.2 Wire doctor nav/home in `App.tsx` + `AppShell.tsx`: doctor home renders `DoctorDashboardPage`; doctor nav = Dashboard, "Fee Dokter Saya", "Audit Akun" (`AuditLogsPage selfOnly`); remove `MyTreatmentHistoryPage` route/import/nav
-- [ ] 12.3 Remove `frontend/src/pages/MyTreatmentHistoryPage.tsx`; repo-wide grep confirms no remaining `MyTreatmentHistory` or `/me/doctor-transactions` references; `npm --prefix frontend run build` passes
+- [x] 12.1 Create `frontend/src/pages/DoctorDashboardPage.tsx` (doctor home): KPI cards for selected period, current-vs-previous income comparison chart styled like the admin dashboard (ECharts, own data only), recent own transactions table, recent own audit entries; period picker defaults to dashboard `period`
+- [x] 12.2 Wire doctor nav/home in `App.tsx` + `AppShell.tsx`: doctor home renders `DoctorDashboardPage`; doctor nav = Dashboard, "Fee Dokter Saya", "Audit Akun" (`AuditLogsPage selfOnly`); remove `MyTreatmentHistoryPage` route/import/nav
+- [x] 12.3 Remove `frontend/src/pages/MyTreatmentHistoryPage.tsx`; repo-wide grep confirms no remaining `MyTreatmentHistory` or `/me/doctor-transactions` references; `npm --prefix frontend run build` passes
 
 ## 13. Phase 2 — QA re-verification (local)
 

@@ -9,12 +9,12 @@ import { useBrand } from "./lib/brand";
 import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { AttendancePage } from "./pages/AttendancePage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { DoctorDashboardPage } from "./pages/DoctorDashboardPage";
 import { DoctorFeesPage } from "./pages/DoctorFeesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MasterDataPage } from "./pages/MasterDataPage";
 import { MyDoctorFeesPage } from "./pages/MyDoctorFeesPage";
 import { MyPayrollPage } from "./pages/MyPayrollPage";
-import { MyTreatmentHistoryPage } from "./pages/MyTreatmentHistoryPage";
 import { OperatorDashboardPage } from "./pages/OperatorDashboardPage";
 import { PayrollPage } from "./pages/PayrollPage";
 import { ReportsPage } from "./pages/ReportsPage";
@@ -93,6 +93,20 @@ function StaffRoute({ children }: { children: ReactNode }) {
   return children;
 }
 
+// Operator/doctor self-service audit route (Audit Akun, /audit-logs/me).
+function SelfAuditRoute({ children }: { children: ReactNode }) {
+  const { data } = useQuery({
+    queryKey: ["me"],
+    queryFn: () => api<UserMe>("/auth/me"),
+    enabled: Boolean(getToken()),
+    retry: false,
+  });
+
+  if (!data) return null;
+  if (!isOperator(data) && !isDoctor(data)) return <Navigate to="/" replace />;
+  return children;
+}
+
 function HomeRoute() {
   const { data } = useQuery({
     queryKey: ["me"],
@@ -103,7 +117,7 @@ function HomeRoute() {
 
   if (!data) return null;
   if (isAdministrator(data)) return <DashboardPage />;
-  if (isDoctor(data)) return <Navigate to="/my-doctor-fees" replace />;
+  if (isDoctor(data)) return <DoctorDashboardPage />;
   return <OperatorDashboardPage />;
 }
 
@@ -122,10 +136,9 @@ export function App() {
         <Route path="/reports" element={<AdminRoute><ReportsPage /></AdminRoute>} />
         <Route path="/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
         <Route path="/audit-logs" element={<AdminRoute><AuditLogsPage /></AdminRoute>} />
-        <Route path="/my-audit-logs" element={<OperatorRoute><AuditLogsPage selfOnly /></OperatorRoute>} />
+        <Route path="/my-audit-logs" element={<SelfAuditRoute><AuditLogsPage selfOnly /></SelfAuditRoute>} />
         <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
         <Route path="/my-doctor-fees" element={<DoctorRoute><MyDoctorFeesPage /></DoctorRoute>} />
-        <Route path="/my-treatment-history" element={<DoctorRoute><MyTreatmentHistoryPage /></DoctorRoute>} />
       </Route>
     </Routes>
   );
