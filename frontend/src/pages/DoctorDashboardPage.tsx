@@ -298,53 +298,57 @@ export function DoctorDashboardPage() {
         </GridItem>
       </Grid>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <LayerCard className="flex flex-col gap-3 p-4 lg:col-span-2">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <Text as="h2" variant="heading3">Transaksi Terbaru Saya</Text>
-              <p className="mt-1 text-sm text-kumo-subtle">Transaksi perawatan terbaru atas nama Anda.</p>
+      <Grid variant="2-1" gap="sm">
+        <GridItem>
+          <LayerCard className="flex h-full flex-col gap-3 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <Text as="h2" variant="heading3">Transaksi Terbaru Saya</Text>
+                <p className="mt-1 text-sm text-kumo-subtle">Transaksi perawatan terbaru atas nama Anda.</p>
+              </div>
+              <Button variant="ghost" size="sm" icon={<ReceiptText size={16} />} onClick={() => navigate("/my-doctor-fees")}>
+                Fee Dokter Saya
+              </Button>
             </div>
-            <Button variant="ghost" size="sm" icon={<ReceiptText size={16} />} onClick={() => navigate("/my-doctor-fees")}>
-              Fee Dokter Saya
-            </Button>
-          </div>
-          <DataTable
-            rows={data?.recent_transactions ?? []}
-            minTableWidth={760}
-            rowKey={(row) => row.id}
-            empty="Belum ada transaksi untuk akun ini."
-            columns={[
-              { key: "date", header: "Tanggal", render: (row) => row.transaction_date },
-              { key: "patient", header: "Pasien", render: (row) => row.patient_name },
-              { key: "treatment", header: "Perawatan", render: (row) => row.treatment_name_snapshot ?? row.treatment_name ?? "-" },
-              { key: "fee", header: "Fee Dokter", align: "right", render: (row) => rupiah.format(row.doctor_fee_amount) },
-              { key: "bill", header: "Total Biaya", align: "right", render: (row) => <strong>{rupiah.format(row.total_bill_amount)}</strong> },
-              { key: "status", header: "", render: (row) => (row.needs_review ? <Badge variant="error">review</Badge> : <Badge variant="success">ok</Badge>) },
-            ]}
-          />
-        </LayerCard>
+            <DataTable
+              rows={data?.recent_transactions ?? []}
+              minTableWidth={760}
+              rowKey={(row) => row.id}
+              empty="Belum ada transaksi untuk akun ini."
+              columns={[
+                { key: "date", header: "Tanggal", render: (row) => row.transaction_date },
+                { key: "patient", header: "Pasien", render: (row) => row.patient_name },
+                { key: "treatment", header: "Perawatan", render: (row) => row.treatment_name_snapshot ?? row.treatment_name ?? "-" },
+                { key: "fee", header: "Fee Dokter", align: "right", render: (row) => rupiah.format(row.doctor_fee_amount) },
+                { key: "bill", header: "Total Biaya", align: "right", render: (row) => <strong>{rupiah.format(row.total_bill_amount)}</strong> },
+                { key: "status", header: "", render: (row) => (row.needs_review ? <Badge variant="error">review</Badge> : <Badge variant="success">ok</Badge>) },
+              ]}
+            />
+          </LayerCard>
+        </GridItem>
 
-        <LayerCard className="flex flex-col gap-3 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <Text as="h2" variant="heading3">Aktivitas Akun Saya</Text>
-            <Button variant="secondary" size="sm" icon={<History size={16} />} onClick={() => navigate("/my-audit-logs")}>
-              Audit Akun
-            </Button>
-          </div>
-          <DataTable
-            rows={(data?.recent_audit_logs ?? []).slice(0, 5)}
-            minTableWidth={380}
-            rowKey={(row) => row.id}
-            empty="Belum ada aktivitas audit untuk akun ini."
-            columns={[
-              { key: "time", header: "Waktu", render: (row) => formatDateTime(row.created_at) },
-              { key: "description", header: "Aktivitas", render: (row) => row.description },
-              { key: "action", header: "", render: (row) => statusBadge(row.action) },
-            ]}
-          />
-        </LayerCard>
-      </div>
+        <GridItem>
+          <LayerCard className="flex h-full flex-col gap-3 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <Text as="h2" variant="heading3">Aktivitas Akun Saya</Text>
+              <Button variant="secondary" size="sm" icon={<History size={16} />} onClick={() => navigate("/my-audit-logs")}>
+                Audit Akun
+              </Button>
+            </div>
+            <DataTable
+              rows={(data?.recent_audit_logs ?? []).slice(0, 5)}
+              minTableWidth={380}
+              rowKey={(row) => row.id}
+              empty="Belum ada aktivitas audit untuk akun ini."
+              columns={[
+                { key: "time", header: "Waktu", render: (row) => formatDateTime(row.created_at) },
+                { key: "description", header: "Aktivitas", render: (row) => row.description },
+                { key: "action", header: "", render: (row) => statusBadge(row.action) },
+              ]}
+            />
+          </LayerCard>
+        </GridItem>
+      </Grid>
     </>
   );
 }
